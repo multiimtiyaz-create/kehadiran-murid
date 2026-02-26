@@ -353,14 +353,15 @@ export default function App() {
       if (record.file.type.startsWith('image/')) {
         setSelectedImage(url);
       } else {
-        // Jika bukan gambar, kita buka di tab baru dan muat turun
-        window.open(url, '_blank');
+        // Jika bukan gambar, kita muat turun terus
         const a = document.createElement('a');
         a.href = url;
         a.download = record.proof;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+        // Jangan revoke serta-merta supaya muat turun sempat bermula
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
       return;
     } 
@@ -373,10 +374,11 @@ export default function App() {
       if (proofStr.startsWith('www')) url = `https://${proofStr}`;
       
       // Jika ia adalah pautan gambar terus, kita boleh cuba paparkan
-      const isImageUrl = /\.(jpg|jpeg|png|gif|webp)$/i.test(url);
+      const isImageUrl = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url.split('?')[0]);
       if (isImageUrl) {
         setSelectedImage(url);
       } else {
+        // Buka pautan di tab baru (sesuai untuk Drive, PDF, dll)
         window.open(url, '_blank');
       }
     } else {
@@ -1123,14 +1125,20 @@ export default function App() {
                 />
               </div>
               <div className="p-4 bg-white flex justify-end space-x-3">
-                <a 
-                  href={selectedImage} 
-                  download="bukti-ketidakhadiran"
+                <button 
+                  onClick={() => {
+                    const a = document.createElement('a');
+                    a.href = selectedImage || '';
+                    a.download = "bukti-ketidakhadiran";
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                  }}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center"
                 >
                   <Paperclip className="w-4 h-4 mr-2" />
                   Muat Turun
-                </a>
+                </button>
                 <button 
                   onClick={() => setSelectedImage(null)}
                   className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-300 transition-colors"
