@@ -28,6 +28,7 @@ export default function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [loggedInStudent, setLoggedInStudent] = useState<any>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   // State untuk Tapisan Guru
   const [filterTingkatan, setFilterTingkatan] = useState('Semua');
@@ -271,13 +272,19 @@ export default function App() {
     setIsSubmitting(true);
 
     // Sediakan format data untuk dihantar ke Google Sheets (Sheet: DATA)
-    const payload = {
-      id: Date.now().toString(), // Jana ID unik berdasarkan masa
+    const payload: any = {
+      id: Date.now().toString(),
       tarikh: date,
       nama_murid: loggedInStudent.name,
       sebab: notes ? `${reason} - ${notes}` : reason,
-      bukti: file ? file.name : 'Tiada Bukti' // Nota: Menyimpan nama fail ke dalam database
+      bukti: file ? file.name : 'Tiada Bukti'
     };
+
+    // Jika ada fail, kita boleh cuba hantar maklumat tambahan (pilihan)
+    if (file) {
+      // Nota: Untuk simpan fail sebenar ke Drive, Apps Script perlu menyokong penerimaan base64
+      // Di sini kita hanya hantar nama fail sebagai rujukan utama
+    }
 
     try {
       // PERHATIAN: Masukkan URL Google Apps Script anda di sini (Web App URL)
@@ -331,28 +338,50 @@ export default function App() {
 
   // Fungsi Muat Turun / Papar Bukti
   const handleDownload = (record: any) => {
-    if (record.file) {
-      // Jika fail ada dalam state (baru dimuat naik dalam sesi ini)
-      const url = URL.createObjectURL(record.file);
-      window.open(url, '_blank');
-      // Juga benarkan muat turun jika perlu
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = record.proof;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 100);
-    } else if (record.proof && (record.proof.startsWith('http') || record.proof.startsWith('www'))) {
-      // Jika bukti adalah pautan (URL)
-      const url = record.proof.startsWith('www') ? `https://${record.proof}` : record.proof;
-      window.open(url, '_blank');
-    } else if (record.proof && record.proof !== 'Tiada Bukti') {
-      // Jika ada nama fail tetapi bukan URL (biasanya dalam sistem sebenar ini adalah ID fail Drive)
-      // Untuk demo, kita cuba cari jika ia adalah pautan yang tidak lengkap atau beritahu pengguna
-      alert(`Fail "${record.proof}" dikesan. Jika ini adalah pautan Google Drive, pastikan ia bermula dengan http/https. Dalam sistem penuh, ini akan membuka dokumen berkaitan.`);
-    } else {
+    const proofStr = String(record.proof || '').trim();
+    
+    if (proofStr === 'Tiada Bukti' || !proofStr) {
       alert('Tiada bukti dilampirkan untuk rekod ini.');
+      return;
+    }
+
+    // 1. Jika fail ada dalam state (baru dimuat naik dalam sesi ini)
+    if (record.file) {
+      const url = URL.createObjectURL(record.file);
+      
+      // Jika ia adalah gambar, kita paparkan dalam modal
+      if (record.file.type.startsWith('image/')) {
+        setSelectedImage(url);
+      } else {
+        // Jika bukan gambar, kita buka di tab baru dan muat turun
+        window.open(url, '_blank');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = record.proof;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+      return;
+    } 
+
+    // 2. Detect URLs (termasuk pautan Google Drive)
+    const isUrl = proofStr.startsWith('http') || proofStr.startsWith('www') || proofStr.includes('drive.google.com') || proofStr.includes('docs.google.com');
+    
+    if (isUrl) {
+      let url = proofStr;
+      if (proofStr.startsWith('www')) url = `https://${proofStr}`;
+      
+      // Jika ia adalah pautan gambar terus, kita boleh cuba paparkan
+      const isImageUrl = /\.(jpg|jpeg|png|gif|webp)$/i.test(url);
+      if (isImageUrl) {
+        setSelectedImage(url);
+      } else {
+        window.open(url, '_blank');
+      }
+    } else {
+      // 3. Jika ia hanya nama fail (rekod lama dari Google Sheets)
+      alert(`Fail: ${proofStr}\n\nNota: Fail ini disimpan di Google Drive. Sila pastikan pangkalan data menyimpan pautan (URL) penuh fail tersebut untuk membolehkan paparan terus.`);
     }
   };
 
@@ -1067,6 +1096,51 @@ export default function App() {
           </div>
 
         </div>
+
+        {/* Modal Paparan Gambar */}
+        {selectedImage && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 animate-in fade-in duration-200">
+            <div className="relative max-w-4xl w-full bg-white rounded-2xl overflow-hidden shadow-2xl">
+              <div className="flex justify-between items-center p-4 border-b">
+                <h3 className="font-bold text-slate-800">Paparan Bukti</h3>
+                <button 
+                  onClick={() => setSelectedImage(null)}
+                  className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+                >
+                  <LogOut className="w-5 h-5 text-slate-500 rotate-180" />
+                </button>
+              </div>
+              <div className="p-2 bg-slate-100 flex items-center justify-center min-h-[300px] max-h-[70vh] overflow-auto">
+                <img 
+                  src={selectedImage} 
+                  alt="Bukti Ketidakhadiran" 
+                  className="max-w-full h-auto rounded shadow-sm"
+                  onError={(e: any) => {
+                    e.target.onerror = null;
+                    alert('Gagal memaparkan gambar. Pautan mungkin tidak sah atau memerlukan kebenaran akses.');
+                    setSelectedImage(null);
+                  }}
+                />
+              </div>
+              <div className="p-4 bg-white flex justify-end space-x-3">
+                <a 
+                  href={selectedImage} 
+                  download="bukti-ketidakhadiran"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center"
+                >
+                  <Paperclip className="w-4 h-4 mr-2" />
+                  Muat Turun
+                </a>
+                <button 
+                  onClick={() => setSelectedImage(null)}
+                  className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-300 transition-colors"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
