@@ -15,7 +15,8 @@ import {
   Filter,
   Eye,
   EyeOff,
-  ClipboardList
+  ClipboardList,
+  ExternalLink
 } from 'lucide-react';
 
 export default function App() {
@@ -328,21 +329,30 @@ export default function App() {
     }
   };
 
-  // Fungsi Muat Turun Bukti
+  // Fungsi Muat Turun / Papar Bukti
   const handleDownload = (record: any) => {
     if (record.file) {
       // Jika fail ada dalam state (baru dimuat naik dalam sesi ini)
       const url = URL.createObjectURL(record.file);
+      window.open(url, '_blank');
+      // Juga benarkan muat turun jika perlu
       const a = document.createElement('a');
       a.href = url;
       a.download = record.proof;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 100);
+    } else if (record.proof && (record.proof.startsWith('http') || record.proof.startsWith('www'))) {
+      // Jika bukti adalah pautan (URL)
+      const url = record.proof.startsWith('www') ? `https://${record.proof}` : record.proof;
+      window.open(url, '_blank');
+    } else if (record.proof && record.proof !== 'Tiada Bukti') {
+      // Jika ada nama fail tetapi bukan URL (biasanya dalam sistem sebenar ini adalah ID fail Drive)
+      // Untuk demo, kita cuba cari jika ia adalah pautan yang tidak lengkap atau beritahu pengguna
+      alert(`Fail "${record.proof}" dikesan. Jika ini adalah pautan Google Drive, pastikan ia bermula dengan http/https. Dalam sistem penuh, ini akan membuka dokumen berkaitan.`);
     } else {
-      // Jika fail tiada (rekod lama atau data contoh)
-      alert(`Fail "${record.proof}" tidak tersedia untuk dimuat turun dalam sesi demo ini. Dalam sistem sebenar, fail ini akan dibuka terus dari Google Drive.`);
+      alert('Tiada bukti dilampirkan untuk rekod ini.');
     }
   };
 
@@ -627,6 +637,10 @@ export default function App() {
                 <div className="border-l border-indigo-500 pl-4">
                   <p className="text-3xl font-black">{stats.todayAbsences}</p>
                   <p className="text-[10px] text-indigo-200 uppercase font-bold">Hari Ini</p>
+                </div>
+                <div className="border-l border-indigo-500 pl-4 hidden sm:block">
+                  <p className="text-sm font-bold truncate max-w-[150px]">{stats.topReason}</p>
+                  <p className="text-[10px] text-indigo-200 uppercase font-bold">Sebab Utama</p>
                 </div>
               </div>
             </div>
@@ -1028,13 +1042,20 @@ export default function App() {
                             {record.notes && <div className="text-slate-500 text-xs mt-0.5 line-clamp-1">{record.notes}</div>}
                           </td>
                           <td className="px-6 py-4">
-                            <button 
-                              onClick={() => handleDownload(record)}
-                              className="flex items-center text-blue-600 hover:text-blue-800 hover:underline transition-colors group"
-                            >
-                              <Paperclip className="w-4 h-4 mr-1 text-slate-400 group-hover:text-blue-600" />
-                              <span className="truncate max-w-[120px]" title={record.proof}>{record.proof}</span>
-                            </button>
+                            {record.proof && record.proof !== 'Tiada Bukti' ? (
+                              <button 
+                                onClick={() => handleDownload(record)}
+                                className="flex items-center text-blue-600 hover:text-blue-800 hover:underline transition-colors group"
+                              >
+                                <Paperclip className="w-4 h-4 mr-1 text-slate-400 group-hover:text-blue-600" />
+                                <span className="truncate max-w-[120px]" title={record.proof}>
+                                  {record.proof.startsWith('http') ? 'Lihat Bukti' : record.proof}
+                                </span>
+                                <ExternalLink className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </button>
+                            ) : (
+                              <span className="text-slate-400 text-xs italic">Tiada Bukti</span>
+                            )}
                           </td>
                         </tr>
                       ))
