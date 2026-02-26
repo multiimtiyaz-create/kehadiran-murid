@@ -133,8 +133,9 @@ export default function App() {
         setStudents(parsedStudents);
       }
 
-      // 2. Ambil Rekod Ketidakhadiran (Sheet: DATA)
-      const recordResponse = await fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vRGSHpGt_BccanOQU6g-zAy4c4KqF1OQsc4z78VUTq9_-yiU0DIy5dGE7z8hz6qmIPBQ7Fd-yOTECzw/pub?output=csv');
+      // 2. Ambil Rekod Ketidakhadiran (Sheet: DATA - gid=0)
+      const recordUrl = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRGSHpGt_BccanOQU6g-zAy4c4KqF1OQsc4z78VUTq9_-yiU0DIy5dGE7z8hz6qmIPBQ7Fd-yOTECzw/pub?gid=0&single=true&output=csv&t=${new Date().getTime()}`;
+      const recordResponse = await fetch(recordUrl);
       const recordCsvText = await recordResponse.text();
       const recordLines = recordCsvText.split('\n').filter(line => line.trim() !== '');
 
@@ -152,38 +153,39 @@ export default function App() {
         const namaIdx = findHeaderIndex(['NAMA MURID', 'NAMA_MURID']);
         const sebabIdx = findHeaderIndex(['SEBAB']);
         const buktiIdx = findHeaderIndex(['BUKTI']);
+        const kelasIdx = findHeaderIndex(['KELAS', 'NAMA KELAS']); // Cuba cari kelas dalam rekod jika ada
 
         const parsedRecords = recordLines.slice(1).map((line, idx) => {
           const cols = parseCSVLine(line);
-          const studentName = namaIdx !== -1 ? cols[namaIdx] : '';
+          const studentName = (namaIdx !== -1 ? cols[namaIdx] : '').trim();
           
           // Cari data murid untuk dapatkan IC dan Kelas
-          const student = parsedStudents.find(s => s.name === studentName);
+          const student = parsedStudents.find(s => s.name && s.name.trim().toUpperCase() === studentName.toUpperCase());
 
           return {
             id: idIdx !== -1 ? cols[idIdx] : idx,
             date: tarikhIdx !== -1 ? cols[tarikhIdx] : '',
             studentName: studentName,
             ic: student ? student.ic : '',
-            className: student ? student.className : '',
+            className: student ? student.className : (kelasIdx !== -1 ? cols[kelasIdx] : ''),
             reason: sebabIdx !== -1 ? cols[sebabIdx] : '',
             proof: buktiIdx !== -1 ? cols[buktiIdx] : 'Tiada Bukti'
           };
         }).filter(r => {
           // Hanya ambil rekod yang mempunyai Nama Murid dan Tarikh yang sah
           const isValidName = r.studentName && 
-                             r.studentName.trim() !== '' && 
-                             r.studentName.toUpperCase() !== 'NAMA MURID' &&
-                             r.studentName.toUpperCase() !== 'TIDAK DIKETAHUI';
+                             r.studentName !== '' && 
+                             r.studentName.toUpperCase() !== 'NAMA MURID';
           
-          const isValidDate = r.date && 
-                             r.date.trim() !== '' && 
-                             !r.date.includes('2009') && // Elak data dummy 2009 jika ada
-                             !isNaN(new Date(r.date).getTime()); // Pastikan tarikh boleh diproses
+          const isValidDate = r.date && r.date.trim() !== '';
           
           return isValidName && isValidDate;
         });
         setRecords(parsedRecords.reverse()); // Rekod terbaru di atas
+      } else {
+        // Jika tiada data baru, pastikan records tidak dikosongkan secara tidak sengaja jika asalnya ada data
+        // Namun biasanya fetch akan kembalikan sekurang-kurangnya header
+        setRecords([]);
       }
 
     } catch (error) {
@@ -370,7 +372,7 @@ export default function App() {
               }}
             />
             <h2 className="text-2xl font-bold text-center text-slate-800">SMK Kolombong</h2>
-            <p className="text-center text-slate-500 mt-1 text-sm font-medium">Sistem E-Hadir</p>
+            <p className="text-center text-slate-500 mt-1 text-sm font-medium">Sistem Ketidakhadiran</p>
           </div>
           
           <div className="flex mb-6 bg-slate-100 p-1 rounded-lg">
@@ -494,8 +496,10 @@ export default function App() {
     ? records.filter(r => {
         // Cari data murid asal untuk dapatkan tingkatan/kelas yang tepat
         const student = students.find(s => s.ic === r.ic);
-        const rTingkatan = student ? student.tingkatan : '';
-        const rKelas = student ? student.kelas : '';
+        
+        // Gunakan data dari rekod jika student lookup gagal (untuk ketahanan data)
+        const rTingkatan = student ? student.tingkatan : (r.className ? r.className.split(' ')[0] : '');
+        const rKelas = student ? student.kelas : (r.className ? r.className.split(' ').slice(1).join(' ') : '');
         
         const matchTingkatan = filterTingkatan === 'Semua' || rTingkatan === filterTingkatan;
         const matchKelas = filterKelas === 'Semua' || rKelas === filterKelas;
@@ -504,6 +508,20 @@ export default function App() {
         return matchTingkatan && matchKelas && matchName;
       })
     : records.filter(r => r.ic === loggedInStudent?.ic);
+
+  // Statistik Ringkas (Untuk Guru)
+  const stats = {
+    totalAbsences: displayedRecords.length,
+    todayAbsences: displayedRecords.filter(r => {
+      const rDate = new Date(r.date).toDateString();
+      const todayDate = new Date().toDateString();
+      return rDate === todayDate;
+    }).length,
+    topReason: Object.entries(displayedRecords.reduce((acc: any, r) => {
+      acc[r.reason] = (acc[r.reason] || 0) + 1;
+      return acc;
+    }, {})).sort((a: any, b: any) => b[1] - a[1])[0]?.[0] || '-'
+  };
 
   // Analisa Guru (Kekerapan Sebab & Kekerapan Murid)
   const reasonFrequency = displayedRecords.reduce((acc: any, record) => {
@@ -562,34 +580,57 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
-        {/* Bahagian Profil Murid */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between">
-          <div className="flex items-center space-x-5">
-            <div className="w-16 h-16 bg-blue-50 border border-blue-100 rounded-full flex items-center justify-center shrink-0">
-              <User className="w-8 h-8 text-blue-600" />
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold text-slate-800 uppercase tracking-wide">
-                {userRole === 'teacher' ? 'GURU KELAS' : loggedInStudent?.name}
-              </h2>
-              {userRole === 'student' ? (
-                <div className="flex flex-col sm:flex-row sm:space-x-6 mt-2 text-sm text-slate-600">
-                  <span className="flex items-center mt-1 sm:mt-0">
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold mr-2">KELAS</span> 
-                    <span className="font-medium">{loggedInStudent?.className}</span>
-                  </span>
-                  <span className="flex items-center mt-2 sm:mt-0">
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold mr-2">NO. IC</span> 
-                    <span className="font-medium">{loggedInStudent?.rawIC}</span>
-                  </span>
-                </div>
-              ) : (
-                <div className="mt-2 text-xs sm:text-sm text-slate-600 font-medium">
-                  Pengurusan Ketidakhadiran Sekolah
-                </div>
-              )}
+        {/* Bahagian Profil & Statistik */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          {/* Profil */}
+          <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between">
+            <div className="flex items-center space-x-5">
+              <div className="w-16 h-16 bg-blue-50 border border-blue-100 rounded-full flex items-center justify-center shrink-0">
+                <User className="w-8 h-8 text-blue-600" />
+              </div>
+              <div>
+                <h2 className="text-lg sm:text-xl font-bold text-slate-800 uppercase tracking-wide">
+                  {userRole === 'teacher' ? 'GURU KELAS' : loggedInStudent?.name}
+                </h2>
+                {userRole === 'student' ? (
+                  <div className="flex flex-col sm:flex-row sm:space-x-6 mt-2 text-sm text-slate-600">
+                    <span className="flex items-center mt-1 sm:mt-0">
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold mr-2">KELAS</span> 
+                      <span className="font-medium">{loggedInStudent?.className}</span>
+                    </span>
+                    <span className="flex items-center mt-2 sm:mt-0">
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold mr-2">NO. IC</span> 
+                      <span className="font-medium">{loggedInStudent?.rawIC}</span>
+                    </span>
+                  </div>
+                ) : (
+                  <div className="mt-2 text-xs sm:text-sm text-slate-600 font-medium">
+                    Pengurusan Ketidakhadiran Sekolah
+                  </div>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Statistik Ringkas (Guru Sahaja) */}
+          {userRole === 'teacher' && (
+            <div className="bg-indigo-600 rounded-xl shadow-md p-6 text-white flex flex-col justify-center">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-indigo-100 text-xs font-bold uppercase tracking-wider">Rumusan Kes</span>
+                <AlertCircle className="w-4 h-4 text-indigo-200" />
+              </div>
+              <div className="flex items-end space-x-4">
+                <div>
+                  <p className="text-3xl font-black">{stats.totalAbsences}</p>
+                  <p className="text-[10px] text-indigo-200 uppercase font-bold">Jumlah Kes</p>
+                </div>
+                <div className="border-l border-indigo-500 pl-4">
+                  <p className="text-3xl font-black">{stats.todayAbsences}</p>
+                  <p className="text-[10px] text-indigo-200 uppercase font-bold">Hari Ini</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
 
