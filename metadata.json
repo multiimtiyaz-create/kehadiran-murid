@@ -1,0 +1,5 @@
+{
+  "name": "SMK Kolombong E-Hadir",
+  "description": "Sistem makluman ketidakhadiran murid SMK Kolombong yang disambungkan ke Google Sheets.",
+  "requestFramePermissions": []
+}
