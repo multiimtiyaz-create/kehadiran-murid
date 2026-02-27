@@ -17,8 +17,12 @@ import {
   EyeOff,
   ClipboardList,
   ExternalLink,
-  Download
+  Download,
+  Printer,
+  Image as ImageIcon
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 export default function App() {
   // State untuk Log Masuk
@@ -143,10 +147,11 @@ export default function App() {
       const recordUrl = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRGSHpGt_BccanOQU6g-zAy4c4KqF1OQsc4z78VUTq9_-yiU0DIy5dGE7z8hz6qmIPBQ7Fd-yOTECzw/pub?gid=0&single=true&output=csv&t=${new Date().getTime()}`;
       const recordResponse = await fetch(recordUrl);
       const recordCsvText = await recordResponse.text();
-      const recordLines = recordCsvText.split('\n').filter(line => line.trim() !== '');
+      // Bersihkan karakter \r dan pecahkan baris
+      const recordLines = recordCsvText.replace(/\r/g, '').split('\n').filter(line => line.trim() !== '');
 
       if (recordLines.length > 1) {
-        const headers = parseCSVLine(recordLines[0]).map(h => h.toUpperCase());
+        const headers = parseCSVLine(recordLines[0]).map(h => h.trim().toUpperCase());
         
         const findHeaderIndex = (keywords: string[]) => {
           let idx = headers.findIndex(h => keywords.some(k => h === k));
@@ -156,14 +161,14 @@ export default function App() {
 
         const idIdx = findHeaderIndex(['ID']);
         const tarikhIdx = findHeaderIndex(['TARIKH']);
-        const namaIdx = findHeaderIndex(['NAMA MURID', 'NAMA_MURID', 'NAMA', 'NAMA PENUH']);
+        const namaIdx = findHeaderIndex(['NAMA MURID', 'NAMA_MURID', 'NAMA', 'NAMA PENUH', 'STUDENT NAME']);
         const sebabIdx = findHeaderIndex(['SEBAB', 'ALASAN', 'REASON']);
-        const buktiIdx = findHeaderIndex(['BUKTI', 'LAMPIRAN', 'DOKUMEN', 'FILE', 'URL', 'PAUTAN', 'BUKTI KETIDAKHADIRAN']);
+        const buktiIdx = findHeaderIndex(['BUKTI', 'LAMPIRAN', 'DOKUMEN', 'FILE', 'URL', 'PAUTAN', 'BUKTI KETIDAKHADIRAN', 'EVIDENCE']);
         const kelasIdx = findHeaderIndex(['KELAS', 'NAMA KELAS', 'CLASS']);
 
         const parsedRecords = recordLines.slice(1).map((line, idx) => {
           const cols = parseCSVLine(line);
-          const studentName = (namaIdx !== -1 ? cols[namaIdx] : '').trim();
+          const studentName = (namaIdx !== -1 ? cols[namaIdx] || '' : '').trim();
           
           // Cari data murid untuk dapatkan IC dan Kelas
           const student = parsedStudents.find(s => s.name && s.name.trim().toUpperCase() === studentName.toUpperCase());
@@ -180,17 +185,18 @@ export default function App() {
             date: tarikhIdx !== -1 ? cols[tarikhIdx] : '',
             studentName: studentName,
             ic: student ? student.ic : '',
-            className: student ? student.className : (kelasIdx !== -1 ? cols[kelasIdx] : ''),
-            reason: sebabIdx !== -1 ? cols[sebabIdx] : '',
+            className: student ? student.className : (kelasIdx !== -1 ? cols[kelasIdx] || '' : ''),
+            reason: sebabIdx !== -1 ? cols[sebabIdx] || '' : '',
             proof: proofVal || 'Tiada Bukti'
           };
         }).filter(r => {
           // Hanya ambil rekod yang mempunyai Nama Murid dan Tarikh yang sah
           const isValidName = r.studentName && 
                              r.studentName !== '' && 
-                             r.studentName.toUpperCase() !== 'NAMA MURID';
+                             r.studentName.toUpperCase() !== 'NAMA MURID' &&
+                             r.studentName.toUpperCase() !== 'NAMA';
           
-          const isValidDate = r.date && r.date.trim() !== '';
+          const isValidDate = r.date && r.date.trim() !== '' && r.date.toUpperCase() !== 'TARIKH';
           
           return isValidName && isValidDate;
         });
@@ -385,6 +391,7 @@ export default function App() {
       const driveId = getDriveId(url);
       if (driveId) {
         // Gunakan pautan direct image Google Drive yang paling berkesan untuk paparan
+        // Kita cuba paparkan dalam modal dahulu
         const directImageUrl = `https://lh3.googleusercontent.com/d/${driveId}`;
         setSelectedImage(directImageUrl);
         return;
@@ -394,6 +401,7 @@ export default function App() {
       if (isImageUrl) {
         setSelectedImage(url);
       } else {
+        // Jika bukan imej terus, buka dalam tab baru (PDF/Doc)
         window.open(url, '_blank');
       }
     } else {
@@ -402,7 +410,7 @@ export default function App() {
         const directImageUrl = `https://lh3.googleusercontent.com/d/${proofStr}`;
         setSelectedImage(directImageUrl);
       } else {
-        alert(`Maklumat bukti: ${proofStr}\n\nPautan tidak sah. Sila pastikan fail di Google Drive telah dikongsi secara 'Public'.`);
+        alert(`Maklumat bukti: ${proofStr}\n\nPautan tidak sah atau fail tidak ditemui.`);
       }
     }
   };
@@ -442,6 +450,49 @@ export default function App() {
       window.open(url, '_blank');
     } else {
       alert(`Maklumat bukti: ${proofStr}\n\nPautan muat turun tidak tersedia.`);
+    }
+  };
+
+  // Fungsi Cetak JPEG (Muat Turun Bukti Sahaja)
+  const handlePrintJPEG = async (record: any) => {
+    const proofStr = String(record.proof || '').trim();
+    
+    if (proofStr === 'Tiada Bukti' || !proofStr) {
+      alert('Tiada bukti dilampirkan.');
+      return;
+    }
+
+    let imageUrl = '';
+    const driveId = getDriveId(proofStr) || (proofStr.includes('googleusercontent.com/d/') ? proofStr.split('/d/')[1] : null);
+    
+    if (record.file && record.file.type.startsWith('image/')) {
+      imageUrl = URL.createObjectURL(record.file);
+    } else if (driveId) {
+      imageUrl = `https://lh3.googleusercontent.com/d/${driveId}`;
+    } else if (proofStr.startsWith('http')) {
+      imageUrl = proofStr;
+    }
+
+    if (!imageUrl) {
+      alert('Gagal mendapatkan pautan imej.');
+      return;
+    }
+
+    try {
+      // Cuba muat turun secara terus menggunakan fetch untuk menamakan fail
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Bukti_${record.studentName.replace(/\s+/g, '_')}_${record.date}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      // Jika fetch gagal (CORS), buka dalam tab baru
+      window.open(imageUrl, '_blank');
     }
   };
 
@@ -1159,19 +1210,19 @@ export default function App() {
                             {record.proof && record.proof !== 'Tiada Bukti' ? (
                               <div className="flex items-center space-x-2">
                                 <button 
-                                  onClick={() => handleView(record)}
-                                  className="flex items-center text-blue-600 hover:text-blue-800 hover:underline transition-colors group text-xs font-medium"
-                                  title="Papar Bukti"
+                                  onClick={() => handlePrintJPEG(record)}
+                                  className="flex items-center text-emerald-600 hover:text-emerald-800 hover:underline transition-colors group text-xs font-medium"
+                                  title="Cetak JPEG"
                                 >
-                                  <Eye className="w-4 h-4 mr-1" />
-                                  Papar
+                                  <ImageIcon className="w-4 h-4 mr-1" />
+                                  Cetak JPEG
                                 </button>
                                 <button 
-                                  onClick={() => handleDownload(record)}
+                                  onClick={() => handleView(record)}
                                   className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all"
-                                  title="Muat Turun"
+                                  title="Papar Bukti"
                                 >
-                                  <Download className="w-4 h-4" />
+                                  <Eye className="w-4 h-4" />
                                 </button>
                               </div>
                             ) : (
