@@ -1128,16 +1128,57 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4">
                             {record.proof && record.proof !== 'Tiada Bukti' ? (
-                              <button 
-                                onClick={() => handleDownload(record)}
-                                className="flex items-center text-blue-600 hover:text-blue-800 hover:underline transition-colors group"
-                              >
-                                <Paperclip className="w-4 h-4 mr-1 text-slate-400 group-hover:text-blue-600" />
-                                <span className="truncate max-w-[120px]" title={record.proof}>
-                                  {record.proof.startsWith('http') ? 'Lihat Bukti' : record.proof}
-                                </span>
-                                <ExternalLink className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
-                              </button>
+                              <div className="flex flex-col space-y-2">
+                                {(record.proof.startsWith('http') || record.proof.includes('drive.google.com')) && (
+                                  <div 
+                                    onClick={() => handleDownload(record)}
+                                    className="w-12 h-12 rounded border border-slate-200 overflow-hidden cursor-pointer hover:border-blue-400 transition-colors bg-slate-50 flex items-center justify-center group relative"
+                                  >
+                                    {/* Thumbnail Preview */}
+                                    {(() => {
+                                      const url = record.proof.includes('drive.google.com') && !record.proof.includes('uc?export=view') 
+                                        ? normalizeDriveLink(record.proof) 
+                                        : record.proof;
+                                      
+                                      const isImg = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url.split('?')[0]) || url.includes('drive.google.com/uc');
+                                      
+                                      if (isImg) {
+                                        return (
+                                          <>
+                                            <img 
+                                              src={url} 
+                                              alt="Preview" 
+                                              className="w-full h-full object-cover"
+                                              referrerPolicy="no-referrer"
+                                              onError={(e: any) => {
+                                                e.target.style.display = 'none';
+                                                e.target.nextSibling.style.display = 'flex';
+                                              }}
+                                            />
+                                            <div className="hidden absolute inset-0 items-center justify-center bg-slate-50">
+                                              <FileText className="w-5 h-5 text-slate-400" />
+                                            </div>
+                                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                              <Eye className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
+                                            </div>
+                                          </>
+                                        );
+                                      }
+                                      return <FileText className="w-5 h-5 text-slate-400" />;
+                                    })()}
+                                  </div>
+                                )}
+                                <button 
+                                  onClick={() => handleDownload(record)}
+                                  className="flex items-center text-blue-600 hover:text-blue-800 hover:underline transition-colors group text-xs"
+                                >
+                                  <Paperclip className="w-3 h-3 mr-1 text-slate-400 group-hover:text-blue-600" />
+                                  <span className="truncate max-w-[100px]" title={record.proof}>
+                                    {record.proof.startsWith('http') ? 'Lihat Bukti' : record.proof}
+                                  </span>
+                                  <ExternalLink className="w-2.5 h-2.5 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </button>
+                              </div>
                             ) : (
                               <span className="text-slate-400 text-xs italic">Tiada Bukti</span>
                             )}
