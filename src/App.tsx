@@ -41,7 +41,7 @@ export default function App() {
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const [driveLink, setDriveLink] = useState('');
+  const [proofLink, setProofLink] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // State data murid dari Google Sheets
@@ -82,6 +82,25 @@ export default function App() {
     }
     ret.push(value.trim());
     return ret;
+  };
+
+  // Fungsi Normalisasi Pautan Google Drive untuk Paparan Terus
+  const normalizeDriveLink = (url: string) => {
+    if (!url || typeof url !== 'string') return url;
+    const trimmed = url.trim();
+    if (trimmed.includes('drive.google.com')) {
+      // Format: https://drive.google.com/file/d/FILE_ID/view...
+      const dMatch = trimmed.match(/\/d\/(.+?)(\/|$|\?)/);
+      if (dMatch && dMatch[1]) {
+        return `https://drive.google.com/uc?export=view&id=${dMatch[1]}`;
+      }
+      // Format: https://drive.google.com/open?id=FILE_ID...
+      const idMatch = trimmed.match(/id=(.+?)(&|$)/);
+      if (idMatch && idMatch[1]) {
+        return `https://drive.google.com/uc?export=view&id=${idMatch[1]}`;
+      }
+    }
+    return trimmed;
   };
 
   // Ambil data murid & rekod ketidakhadiran dari Google Sheets
@@ -273,12 +292,14 @@ export default function App() {
     setIsSubmitting(true);
 
     // Sediakan format data untuk dihantar ke Google Sheets (Sheet: DATA)
+    const normalizedProof = proofLink.trim() !== '' ? normalizeDriveLink(proofLink) : (file ? file.name : 'Tiada Bukti');
+    
     const payload: any = {
       id: Date.now().toString(),
       tarikh: date,
       nama_murid: loggedInStudent.name,
       sebab: notes ? `${reason} - ${notes}` : reason,
-      bukti: file ? file.name : (driveLink.trim() !== '' ? driveLink.trim() : 'Tiada Bukti')
+      bukti: normalizedProof
     };
 
     // Jika ada fail, kita boleh cuba hantar maklumat tambahan (pilihan)
@@ -317,7 +338,7 @@ export default function App() {
       className: loggedInStudent.className,
       reason: reason,
       notes: notes,
-      proof: file ? file.name : (driveLink.trim() !== '' ? driveLink.trim() : 'Tiada Bukti'),
+      proof: normalizedProof,
       file: file // Simpan objek fail untuk tujuan muat turun dalam sesi ini
     };
 
@@ -328,7 +349,7 @@ export default function App() {
       setReason('');
       setNotes('');
       setFile(null);
-      setDriveLink('');
+      setProofLink('');
       alert('Makluman ketidakhadiran berjaya dihantar ke pangkalan data!');
     } catch (error) {
       console.error('Ralat ketika menghantar data:', error);
@@ -362,7 +383,8 @@ export default function App() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 100);
+        // Jangan revoke serta-merta supaya muat turun sempat bermula
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
       return;
     } 
@@ -374,22 +396,14 @@ export default function App() {
       let url = proofStr;
       if (proofStr.startsWith('www')) url = `https://${proofStr}`;
       
-      // Cuba tukar pautan Google Drive kepada pautan imej terus (direct link)
-      if (url.includes('drive.google.com')) {
-        // Format 1: /file/d/[ID]/view
-        const driveIdMatch1 = url.match(/\/d\/(.+?)(\/|$|\?)/);
-        // Format 2: ?id=[ID]
-        const driveIdMatch2 = url.match(/[?&]id=(.+?)(&|$)/);
-        
-        const driveId = (driveIdMatch1 && driveIdMatch1[1]) || (driveIdMatch2 && driveIdMatch2[1]);
-        
-        if (driveId) {
-          url = `https://drive.google.com/uc?export=view&id=${driveId}`;
-        }
+      // Normalisasi pautan Google Drive untuk paparan terus jika belum dinormalisasi
+      if (url.includes('drive.google.com') && !url.includes('uc?export=view')) {
+        url = normalizeDriveLink(url);
       }
 
-      // Jika ia adalah pautan imej, kita paparkan dalam modal
+      // Jika ia adalah pautan gambar (atau pautan Drive yang telah dinormalisasi), cuba paparkan
       const isImageUrl = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url.split('?')[0]) || url.includes('drive.google.com/uc');
+      
       if (isImageUrl) {
         setSelectedImage(url);
       } else {
@@ -398,8 +412,7 @@ export default function App() {
       }
     } else {
       // 3. Jika ia hanya nama fail (rekod lama dari Google Sheets)
-      const confirmSearch = window.confirm(`Fail: ${proofStr}\n\nFail ini mungkin disimpan di Google Drive. Adakah anda ingin mencari fail ini secara automatik di Google Drive?`);
-      if (confirmSearch) {
+      if (confirm(`Fail: ${proofStr}\n\nNota: Fail ini disimpan di Google Drive tetapi pautan terus tidak tersedia. Adakah anda ingin mencari fail ini di Google Drive anda?`)) {
         window.open(`https://drive.google.com/drive/search?q=${encodeURIComponent(proofStr)}`, '_blank');
       }
     }
@@ -1005,43 +1018,51 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Pautan Google Drive (Jika ada)</label>
-                  <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                    <ExternalLink className="w-4 h-4 text-slate-400 mr-2 shrink-0" />
-                    <input 
-                      type="url"
-                      placeholder="Tampal pautan Google Drive di sini..."
-                      value={driveLink}
-                      onChange={(e) => setDriveLink(e.target.value)}
-                      className="bg-transparent text-sm text-slate-700 outline-none w-full"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1 italic">* Gunakan ini jika anda ingin bukti disimpan secara kekal.</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Muat Naik Bukti (Sesi Semasa)</label>
-                  <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors relative group">
-                    <div className="space-y-1 text-center">
-                      <Upload className="mx-auto h-12 w-12 text-slate-400 group-hover:text-blue-500 transition-colors" />
-                      <div className="flex text-sm text-slate-600 justify-center">
-                        <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500 px-1">
-                          <span>Pilih fail</span>
-                          <input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} accept=".jpg,.jpeg,.png,.pdf" />
-                        </label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Bukti (MC/Surat)</label>
+                  <div className="space-y-3">
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <div className="flex-1">
+                        <div className="mt-1 flex justify-center px-4 py-4 border-2 border-slate-300 border-dashed rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors relative group">
+                          <div className="space-y-1 text-center">
+                            <Upload className="mx-auto h-8 w-8 text-slate-400 group-hover:text-blue-500 transition-colors" />
+                            <div className="flex text-xs text-slate-600 justify-center">
+                              <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500 px-1">
+                                <span>Pilih fail</span>
+                                <input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} accept=".jpg,.jpeg,.png,.pdf" />
+                              </label>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-xs text-slate-500">PNG, JPG, PDF sehingga 50MB</p>
+                      <div className="flex items-center justify-center text-slate-400 text-xs font-bold uppercase">Atau</div>
+                      <div className="flex-1">
+                        <div className="mt-1">
+                          <input 
+                            type="text"
+                            placeholder="Tampal Pautan Google Drive..."
+                            value={proofLink}
+                            onChange={(e) => {
+                              setProofLink(e.target.value);
+                              if (e.target.value.trim() !== '') setFile(null);
+                            }}
+                            className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-xs"
+                          />
+                        </div>
+                      </div>
                     </div>
+                    
+                    {file && (
+                      <div className="flex items-center p-2 bg-blue-50 rounded-lg border border-blue-100">
+                        <Paperclip className="w-4 h-4 text-blue-500 mr-2 shrink-0" />
+                        <span className="text-xs text-blue-700 truncate">{file.name}</span>
+                        <button type="button" onClick={() => setFile(null)} className="ml-auto text-blue-400 hover:text-red-500">
+                           <AlertCircle className="w-4 h-4 rotate-45" />
+                        </button>
+                      </div>
+                    )}
+                    
+                    <p className="text-[10px] text-slate-500 italic">Nota: Fail yang dimuat naik terus hanya tersedia untuk sesi ini. Gunakan pautan Google Drive untuk simpanan kekal.</p>
                   </div>
-                  {file && (
-                    <div className="mt-3 flex items-center p-2 bg-blue-50 rounded-lg border border-blue-100">
-                      <Paperclip className="w-4 h-4 text-blue-500 mr-2 shrink-0" />
-                      <span className="text-sm text-blue-700 truncate">{file.name}</span>
-                      <button type="button" onClick={() => setFile(null)} className="ml-auto text-blue-400 hover:text-red-500">
-                         <AlertCircle className="w-4 h-4 rotate-45" />
-                      </button>
-                    </div>
-                  )}
                 </div>
 
                 <button 
@@ -1107,23 +1128,16 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4">
                             {record.proof && record.proof !== 'Tiada Bukti' ? (
-                              <div className="flex flex-col space-y-1">
-                                <button 
-                                  onClick={() => handleDownload(record)}
-                                  className="flex items-center text-blue-600 hover:text-blue-800 hover:underline transition-colors group"
-                                >
-                                  <Paperclip className="w-4 h-4 mr-1 text-slate-400 group-hover:text-blue-600" />
-                                  <span className="truncate max-w-[120px]" title={record.proof}>
-                                    {record.proof.startsWith('http') || record.proof.includes('drive.google.com') ? 'Lihat Bukti' : record.proof}
-                                  </span>
-                                  <ExternalLink className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                </button>
-                                {!(record.proof.startsWith('http') || record.proof.includes('drive.google.com')) && !record.file && (
-                                  <span className="text-[10px] text-orange-500 font-medium flex items-center">
-                                    <RefreshCw className="w-2.5 h-2.5 mr-1" /> Klik untuk cari di Drive
-                                  </span>
-                                )}
-                              </div>
+                              <button 
+                                onClick={() => handleDownload(record)}
+                                className="flex items-center text-blue-600 hover:text-blue-800 hover:underline transition-colors group"
+                              >
+                                <Paperclip className="w-4 h-4 mr-1 text-slate-400 group-hover:text-blue-600" />
+                                <span className="truncate max-w-[120px]" title={record.proof}>
+                                  {record.proof.startsWith('http') ? 'Lihat Bukti' : record.proof}
+                                </span>
+                                <ExternalLink className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </button>
                             ) : (
                               <span className="text-slate-400 text-xs italic">Tiada Bukti</span>
                             )}
@@ -1168,7 +1182,7 @@ export default function App() {
                 <button 
                   onClick={() => {
                     const a = document.createElement('a');
-                    a.href = selectedImage;
+                    a.href = selectedImage || '';
                     a.download = "bukti-ketidakhadiran";
                     document.body.appendChild(a);
                     a.click();
