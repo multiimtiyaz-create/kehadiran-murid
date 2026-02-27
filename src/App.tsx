@@ -16,8 +16,7 @@ import {
   Eye,
   EyeOff,
   ClipboardList,
-  ExternalLink,
-  Trash2
+  ExternalLink
 } from 'lucide-react';
 
 export default function App() {
@@ -42,7 +41,6 @@ export default function App() {
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const [proofLink, setProofLink] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // State data murid dari Google Sheets
@@ -107,7 +105,6 @@ export default function App() {
         const tingkatanIdx = findHeaderIndex(['TAHUN / TINGKATAN', 'TAHUN', 'TINGKATAN', 'FORM']);
         const namaKelasIdx = findHeaderIndex(['NAMA KELAS', 'KELAS']);
         const icIdx = findHeaderIndex(['IC', 'K/P', 'KP', 'NO. KAD PENGENALAN', 'PENGENALAN']);
-        const teacherIdx = findHeaderIndex(['GURU KELAS', 'NAMA GURU', 'GURU']);
 
         parsedStudents = studentLines.slice(1).map((line, idx) => {
           const cols = parseCSVLine(line);
@@ -132,8 +129,7 @@ export default function App() {
             tingkatan: tingkatanVal,
             kelas: namaKelasVal,
             ic: cleanIC,
-            rawIC: rawIC,
-            teacherName: teacherIdx !== -1 ? cols[teacherIdx] || '-' : '-'
+            rawIC: rawIC
           };
         });
         setStudents(parsedStudents);
@@ -281,7 +277,7 @@ export default function App() {
       tarikh: date,
       nama_murid: loggedInStudent.name,
       sebab: notes ? `${reason} - ${notes}` : reason,
-      bukti: proofLink.trim() !== '' ? proofLink : (file ? file.name : 'Tiada Bukti')
+      bukti: file ? file.name : 'Tiada Bukti'
     };
 
     // Jika ada fail, kita boleh cuba hantar maklumat tambahan (pilihan)
@@ -320,7 +316,7 @@ export default function App() {
       className: loggedInStudent.className,
       reason: reason,
       notes: notes,
-      proof: proofLink.trim() !== '' ? proofLink : (file ? file.name : 'Tiada Bukti'),
+      proof: file ? file.name : 'Tiada Bukti',
       file: file // Simpan objek fail untuk tujuan muat turun dalam sesi ini
     };
 
@@ -331,7 +327,6 @@ export default function App() {
       setReason('');
       setNotes('');
       setFile(null);
-      setProofLink('');
       alert('Makluman ketidakhadiran berjaya dihantar ke pangkalan data!');
     } catch (error) {
       console.error('Ralat ketika menghantar data:', error);
@@ -365,8 +360,7 @@ export default function App() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        // Jangan revoke serta-merta supaya muat turun sempat bermula
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setTimeout(() => URL.revokeObjectURL(url), 100);
       }
       return;
     } 
@@ -388,34 +382,7 @@ export default function App() {
       }
     } else {
       // 3. Jika ia hanya nama fail (rekod lama dari Google Sheets)
-      if (confirm(`Fail: ${proofStr}\n\nNota: Fail ini disimpan di Google Drive tetapi pautan terus tidak tersedia. Adakah anda ingin mencari fail ini di Google Drive anda?`)) {
-        window.open(`https://drive.google.com/drive/search?q=${encodeURIComponent(proofStr)}`, '_blank');
-      }
-    }
-  };
-
-  // Fungsi Padam Rekod (Guru Sahaja)
-  const handleDelete = async (recordId: string) => {
-    if (!confirm('Adakah anda pasti ingin memadam rekod ini?')) return;
-
-    try {
-      const scriptUrl = 'https://script.google.com/macros/s/AKfycbxYrx7srwwTRG-7pq7jmYBtbt8ZBEbpMzFAFlJRlgOBhpA4yVD1A-4cVG1QFm5NgGxtFQ/exec';
-      
-      // Hantar request delete ke Apps Script
-      // Nota: Apps Script perlu dikemaskini untuk mengendalikan action: 'delete'
-      await fetch(scriptUrl, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'delete', id: recordId })
-      });
-
-      // Kemaskini state tempatan
-      setRecords(records.filter(r => r.id !== recordId));
-      alert('Rekod berjaya dipadam!');
-    } catch (error) {
-      console.error('Ralat memadam rekod:', error);
-      alert('Gagal memadam rekod. Sila cuba lagi.');
+      alert(`Fail: ${proofStr}\n\nNota: Fail ini disimpan di Google Drive. Sila pastikan pangkalan data menyimpan pautan (URL) penuh fail tersebut untuk membolehkan paparan terus.`);
     }
   };
 
@@ -666,24 +633,16 @@ export default function App() {
                   {userRole === 'teacher' ? 'GURU KELAS' : loggedInStudent?.name}
                 </h2>
                 {userRole === 'student' ? (
-                  <>
-                    <div className="flex flex-col sm:flex-row sm:space-x-6 mt-2 text-sm text-slate-600">
-                      <span className="flex items-center mt-1 sm:mt-0">
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold mr-2">KELAS</span> 
-                        <span className="font-medium">{loggedInStudent?.className}</span>
-                      </span>
-                      <span className="flex items-center mt-2 sm:mt-0">
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold mr-2">NO. IC</span> 
-                        <span className="font-medium">{loggedInStudent?.rawIC}</span>
-                      </span>
-                    </div>
-                    {loggedInStudent?.teacherName && loggedInStudent?.teacherName !== '-' && (
-                      <div className="mt-3 flex items-center">
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-[10px] font-bold mr-2 uppercase">Guru Kelas</span>
-                        <span className="text-xs sm:text-sm font-bold text-blue-700">{loggedInStudent.teacherName}</span>
-                      </div>
-                    )}
-                  </>
+                  <div className="flex flex-col sm:flex-row sm:space-x-6 mt-2 text-sm text-slate-600">
+                    <span className="flex items-center mt-1 sm:mt-0">
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold mr-2">KELAS</span> 
+                      <span className="font-medium">{loggedInStudent?.className}</span>
+                    </span>
+                    <span className="flex items-center mt-2 sm:mt-0">
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold mr-2">NO. IC</span> 
+                      <span className="font-medium">{loggedInStudent?.rawIC}</span>
+                    </span>
+                  </div>
                 ) : (
                   <div className="mt-2 text-xs sm:text-sm text-slate-600 font-medium">
                     Pengurusan Ketidakhadiran Sekolah
@@ -1027,51 +986,28 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Bukti (MC/Surat)</label>
-                  <div className="space-y-3">
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <div className="flex-1">
-                        <div className="mt-1 flex justify-center px-4 py-4 border-2 border-slate-300 border-dashed rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors relative group">
-                          <div className="space-y-1 text-center">
-                            <Upload className="mx-auto h-8 w-8 text-slate-400 group-hover:text-blue-500 transition-colors" />
-                            <div className="flex text-xs text-slate-600 justify-center">
-                              <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500 px-1">
-                                <span>Pilih fail</span>
-                                <input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} accept=".jpg,.jpeg,.png,.pdf" />
-                              </label>
-                            </div>
-                          </div>
-                        </div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Muat Naik Bukti (MC/Surat)</label>
+                  <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors relative group">
+                    <div className="space-y-1 text-center">
+                      <Upload className="mx-auto h-12 w-12 text-slate-400 group-hover:text-blue-500 transition-colors" />
+                      <div className="flex text-sm text-slate-600 justify-center">
+                        <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500 px-1">
+                          <span>Pilih fail</span>
+                          <input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} accept=".jpg,.jpeg,.png,.pdf" />
+                        </label>
                       </div>
-                      <div className="flex items-center justify-center text-slate-400 text-xs font-bold uppercase">Atau</div>
-                      <div className="flex-1">
-                        <div className="mt-1">
-                          <input 
-                            type="text"
-                            placeholder="Tampal Pautan Google Drive..."
-                            value={proofLink}
-                            onChange={(e) => {
-                              setProofLink(e.target.value);
-                              if (e.target.value.trim() !== '') setFile(null);
-                            }}
-                            className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-xs"
-                          />
-                        </div>
-                      </div>
+                      <p className="text-xs text-slate-500">PNG, JPG, PDF sehingga 50MB</p>
                     </div>
-                    
-                    {file && (
-                      <div className="flex items-center p-2 bg-blue-50 rounded-lg border border-blue-100">
-                        <Paperclip className="w-4 h-4 text-blue-500 mr-2 shrink-0" />
-                        <span className="text-xs text-blue-700 truncate">{file.name}</span>
-                        <button type="button" onClick={() => setFile(null)} className="ml-auto text-blue-400 hover:text-red-500">
-                           <AlertCircle className="w-4 h-4 rotate-45" />
-                        </button>
-                      </div>
-                    )}
-                    
-                    <p className="text-[10px] text-slate-500 italic">Nota: Fail yang dimuat naik terus hanya tersedia untuk sesi ini. Gunakan pautan Google Drive untuk simpanan kekal.</p>
                   </div>
+                  {file && (
+                    <div className="mt-3 flex items-center p-2 bg-blue-50 rounded-lg border border-blue-100">
+                      <Paperclip className="w-4 h-4 text-blue-500 mr-2 shrink-0" />
+                      <span className="text-sm text-blue-700 truncate">{file.name}</span>
+                      <button type="button" onClick={() => setFile(null)} className="ml-auto text-blue-400 hover:text-red-500">
+                         <AlertCircle className="w-4 h-4 rotate-45" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <button 
@@ -1110,13 +1046,12 @@ export default function App() {
                       {userRole === 'teacher' && <th scope="col" className="px-6 py-4 font-medium">Nama Murid & Kelas</th>}
                       <th scope="col" className="px-6 py-4 font-medium">Sebab & Catatan</th>
                       <th scope="col" className="px-6 py-4 font-medium">Bukti</th>
-                      {userRole === 'teacher' && <th scope="col" className="px-6 py-4 font-medium text-center">Aksi</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {displayedRecords.length === 0 ? (
                       <tr>
-                        <td colSpan={userRole === 'teacher' ? 5 : 3} className="px-6 py-8 text-center text-slate-400">
+                        <td colSpan={userRole === 'teacher' ? 4 : 3} className="px-6 py-8 text-center text-slate-400">
                           Tiada rekod ketidakhadiran ditemui.
                         </td>
                       </tr>
@@ -1129,12 +1064,7 @@ export default function App() {
                           {userRole === 'teacher' && (
                             <td className="px-6 py-4">
                               <div className="font-medium text-slate-800">{record.studentName}</div>
-                              <div className="text-slate-500 text-xs mt-0.5">
-                                {record.className}
-                                {students.find(s => s.name === record.studentName)?.teacherName && students.find(s => s.name === record.studentName)?.teacherName !== '-' && (
-                                  <span className="ml-2 text-blue-500 font-medium">• Guru: {students.find(s => s.name === record.studentName)?.teacherName}</span>
-                                )}
-                              </div>
+                              <div className="text-slate-500 text-xs mt-0.5">{record.className}</div>
                             </td>
                           )}
                           <td className="px-6 py-4">
@@ -1157,17 +1087,6 @@ export default function App() {
                               <span className="text-slate-400 text-xs italic">Tiada Bukti</span>
                             )}
                           </td>
-                          {userRole === 'teacher' && (
-                            <td className="px-6 py-4 text-center">
-                              <button 
-                                onClick={() => handleDelete(record.id)}
-                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                title="Padam Rekod"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </td>
-                          )}
                         </tr>
                       ))
                     )}
@@ -1208,7 +1127,7 @@ export default function App() {
                 <button 
                   onClick={() => {
                     const a = document.createElement('a');
-                    a.href = selectedImage || '';
+                    a.href = selectedImage;
                     a.download = "bukti-ketidakhadiran";
                     document.body.appendChild(a);
                     a.click();
