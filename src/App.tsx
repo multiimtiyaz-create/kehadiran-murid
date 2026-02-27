@@ -156,10 +156,10 @@ export default function App() {
 
         const idIdx = findHeaderIndex(['ID']);
         const tarikhIdx = findHeaderIndex(['TARIKH']);
-        const namaIdx = findHeaderIndex(['NAMA MURID', 'NAMA_MURID']);
-        const sebabIdx = findHeaderIndex(['SEBAB']);
-        const buktiIdx = findHeaderIndex(['BUKTI']);
-        const kelasIdx = findHeaderIndex(['KELAS', 'NAMA KELAS']); // Cuba cari kelas dalam rekod jika ada
+        const namaIdx = findHeaderIndex(['NAMA MURID', 'NAMA_MURID', 'NAMA']);
+        const sebabIdx = findHeaderIndex(['SEBAB', 'ALASAN']);
+        const buktiIdx = findHeaderIndex(['BUKTI', 'LAMPIRAN', 'DOKUMEN']);
+        const kelasIdx = findHeaderIndex(['KELAS', 'NAMA KELAS']);
 
         const parsedRecords = recordLines.slice(1).map((line, idx) => {
           const cols = parseCSVLine(line);
@@ -167,6 +167,8 @@ export default function App() {
           
           // Cari data murid untuk dapatkan IC dan Kelas
           const student = parsedStudents.find(s => s.name && s.name.trim().toUpperCase() === studentName.toUpperCase());
+          
+          const proofVal = buktiIdx !== -1 ? (cols[buktiIdx] || '').trim() : '';
 
           return {
             id: idIdx !== -1 ? cols[idIdx] : idx,
@@ -175,7 +177,7 @@ export default function App() {
             ic: student ? student.ic : '',
             className: student ? student.className : (kelasIdx !== -1 ? cols[kelasIdx] : ''),
             reason: sebabIdx !== -1 ? cols[sebabIdx] : '',
-            proof: buktiIdx !== -1 ? cols[buktiIdx] : 'Tiada Bukti'
+            proof: proofVal || 'Tiada Bukti'
           };
         }).filter(r => {
           // Hanya ambil rekod yang mempunyai Nama Murid dan Tarikh yang sah
@@ -341,6 +343,13 @@ export default function App() {
     }
   };
 
+  // Fungsi untuk mengekstrak ID Google Drive
+  const getDriveId = (url: string) => {
+    const regex = /(?:id=|\/d\/|file\/d\/|open\?id=)([a-zA-Z0-9_-]{25,})/;
+    const match = url.match(regex);
+    return match ? match[1] : null;
+  };
+
   // Fungsi Papar Bukti
   const handleView = (record: any) => {
     const proofStr = String(record.proof || '').trim();
@@ -368,14 +377,12 @@ export default function App() {
       let url = proofStr;
       if (proofStr.startsWith('www')) url = `https://${proofStr}`;
       
-      // Jika ia adalah pautan Google Drive, cuba tukar ke pautan paparan terus
-      if (url.includes('drive.google.com')) {
-        const match = url.match(/\/(?:d|open|uc|file\/d)\/([a-zA-Z0-9_-]+)/);
-        if (match && match[1]) {
-          const directUrl = `https://drive.google.com/uc?export=view&id=${match[1]}`;
-          setSelectedImage(directUrl);
-          return;
-        }
+      const driveId = getDriveId(url);
+      if (driveId) {
+        // Cuba paparkan sebagai imej terus dahulu
+        const directImageUrl = `https://drive.google.com/uc?id=${driveId}&export=view`;
+        setSelectedImage(directImageUrl);
+        return;
       }
 
       const isImageUrl = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url.split('?')[0]);
@@ -385,7 +392,7 @@ export default function App() {
         window.open(url, '_blank');
       }
     } else {
-      alert(`Fail: ${proofStr}\n\nPautan terus tidak tersedia untuk rekod ini.`);
+      alert(`Maklumat bukti: ${proofStr}\n\nPautan tidak ditemui. Sila pastikan pautan Google Drive telah dikongsi secara 'Public' atau 'Anyone with the link'.`);
     }
   };
 
@@ -415,17 +422,15 @@ export default function App() {
       let url = proofStr;
       if (proofStr.startsWith('www')) url = `https://${proofStr}`;
 
-      // Jika ia adalah pautan Google Drive, cuba tukar ke pautan muat turun terus
-      if (url.includes('drive.google.com')) {
-        const match = url.match(/\/(?:d|open|uc|file\/d)\/([a-zA-Z0-9_-]+)/);
-        if (match && match[1]) {
-          url = `https://drive.google.com/uc?export=download&id=${match[1]}`;
-        }
+      const driveId = getDriveId(url);
+      if (driveId) {
+        // Pautan muat turun terus Google Drive
+        url = `https://drive.google.com/uc?id=${driveId}&export=download`;
       }
       
       window.open(url, '_blank');
     } else {
-      alert(`Fail: ${proofStr}\n\nPautan muat turun tidak tersedia.`);
+      alert(`Maklumat bukti: ${proofStr}\n\nPautan muat turun tidak tersedia.`);
     }
   };
 
@@ -1193,7 +1198,14 @@ export default function App() {
                   className="max-w-full h-auto rounded shadow-sm"
                   onError={(e: any) => {
                     e.target.onerror = null;
-                    alert('Gagal memaparkan gambar. Pautan mungkin tidak sah atau memerlukan kebenaran akses.');
+                    // Jika gagal sebagai imej terus (mungkin PDF atau Drive Preview diperlukan)
+                    const driveId = getDriveId(selectedImage || '');
+                    if (driveId) {
+                      window.open(`https://drive.google.com/file/d/${driveId}/view`, '_blank');
+                    } else {
+                      alert('Gagal memaparkan gambar secara terus. Membuka pautan asal di tab baru.');
+                      window.open(selectedImage || '', '_blank');
+                    }
                     setSelectedImage(null);
                   }}
                 />
