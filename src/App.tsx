@@ -16,7 +16,8 @@ import {
   Eye,
   EyeOff,
   ClipboardList,
-  ExternalLink
+  ExternalLink,
+  Download
 } from 'lucide-react';
 
 export default function App() {
@@ -84,25 +85,6 @@ export default function App() {
     return ret;
   };
 
-  // Fungsi Normalisasi Pautan Google Drive untuk Paparan Terus
-  const normalizeDriveLink = (url: string) => {
-    if (!url || typeof url !== 'string') return url;
-    const trimmed = url.trim();
-    if (trimmed.includes('drive.google.com')) {
-      // Format: https://drive.google.com/file/d/FILE_ID/view...
-      const dMatch = trimmed.match(/\/d\/(.+?)(\/|$|\?)/);
-      if (dMatch && dMatch[1]) {
-        return `https://drive.google.com/uc?export=view&id=${dMatch[1]}`;
-      }
-      // Format: https://drive.google.com/open?id=FILE_ID...
-      const idMatch = trimmed.match(/id=(.+?)(&|$)/);
-      if (idMatch && idMatch[1]) {
-        return `https://drive.google.com/uc?export=view&id=${idMatch[1]}`;
-      }
-    }
-    return trimmed;
-  };
-
   // Ambil data murid & rekod ketidakhadiran dari Google Sheets
   const fetchData = async () => {
     setIsLoadingData(true);
@@ -125,6 +107,7 @@ export default function App() {
         const tingkatanIdx = findHeaderIndex(['TAHUN / TINGKATAN', 'TAHUN', 'TINGKATAN', 'FORM']);
         const namaKelasIdx = findHeaderIndex(['NAMA KELAS', 'KELAS']);
         const icIdx = findHeaderIndex(['IC', 'K/P', 'KP', 'NO. KAD PENGENALAN', 'PENGENALAN']);
+        const teacherIdx = findHeaderIndex(['GURU KELAS', 'NAMA GURU', 'GURU']);
 
         parsedStudents = studentLines.slice(1).map((line, idx) => {
           const cols = parseCSVLine(line);
@@ -149,7 +132,8 @@ export default function App() {
             tingkatan: tingkatanVal,
             kelas: namaKelasVal,
             ic: cleanIC,
-            rawIC: rawIC
+            rawIC: rawIC,
+            teacherName: teacherIdx !== -1 ? cols[teacherIdx] || '-' : '-'
           };
         });
         setStudents(parsedStudents);
@@ -292,14 +276,12 @@ export default function App() {
     setIsSubmitting(true);
 
     // Sediakan format data untuk dihantar ke Google Sheets (Sheet: DATA)
-    const normalizedProof = proofLink.trim() !== '' ? normalizeDriveLink(proofLink) : (file ? file.name : 'Tiada Bukti');
-    
     const payload: any = {
       id: Date.now().toString(),
       tarikh: date,
       nama_murid: loggedInStudent.name,
       sebab: notes ? `${reason} - ${notes}` : reason,
-      bukti: normalizedProof
+      bukti: proofLink.trim() !== '' ? proofLink : (file ? file.name : 'Tiada Bukti')
     };
 
     // Jika ada fail, kita boleh cuba hantar maklumat tambahan (pilihan)
@@ -338,7 +320,7 @@ export default function App() {
       className: loggedInStudent.className,
       reason: reason,
       notes: notes,
-      proof: normalizedProof,
+      proof: proofLink.trim() !== '' ? proofLink : (file ? file.name : 'Tiada Bukti'),
       file: file // Simpan objek fail untuk tujuan muat turun dalam sesi ini
     };
 
@@ -359,8 +341,8 @@ export default function App() {
     }
   };
 
-  // Fungsi Muat Turun / Papar Bukti
-  const handleDownload = (record: any) => {
+  // Fungsi Papar Bukti
+  const handleView = (record: any) => {
     const proofStr = String(record.proof || '').trim();
     
     if (proofStr === 'Tiada Bukti' || !proofStr) {
@@ -371,20 +353,10 @@ export default function App() {
     // 1. Jika fail ada dalam state (baru dimuat naik dalam sesi ini)
     if (record.file) {
       const url = URL.createObjectURL(record.file);
-      
-      // Jika ia adalah gambar, kita paparkan dalam modal
       if (record.file.type.startsWith('image/')) {
         setSelectedImage(url);
       } else {
-        // Jika bukan gambar, kita muat turun terus
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = record.proof;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        // Jangan revoke serta-merta supaya muat turun sempat bermula
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        window.open(url, '_blank');
       }
       return;
     } 
@@ -396,25 +368,64 @@ export default function App() {
       let url = proofStr;
       if (proofStr.startsWith('www')) url = `https://${proofStr}`;
       
-      // Normalisasi pautan Google Drive untuk paparan terus jika belum dinormalisasi
-      if (url.includes('drive.google.com') && !url.includes('uc?export=view')) {
-        url = normalizeDriveLink(url);
+      // Jika ia adalah pautan Google Drive, cuba tukar ke pautan paparan terus
+      if (url.includes('drive.google.com')) {
+        const match = url.match(/\/(?:d|open|uc|file\/d)\/([a-zA-Z0-9_-]+)/);
+        if (match && match[1]) {
+          const directUrl = `https://drive.google.com/uc?export=view&id=${match[1]}`;
+          setSelectedImage(directUrl);
+          return;
+        }
       }
 
-      // Jika ia adalah pautan gambar (atau pautan Drive yang telah dinormalisasi), cuba paparkan
-      const isImageUrl = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url.split('?')[0]) || url.includes('drive.google.com/uc');
-      
+      const isImageUrl = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url.split('?')[0]);
       if (isImageUrl) {
         setSelectedImage(url);
       } else {
-        // Buka pautan di tab baru (sesuai untuk Drive, PDF, dll)
         window.open(url, '_blank');
       }
     } else {
-      // 3. Jika ia hanya nama fail (rekod lama dari Google Sheets)
-      if (confirm(`Fail: ${proofStr}\n\nNota: Fail ini disimpan di Google Drive tetapi pautan terus tidak tersedia. Adakah anda ingin mencari fail ini di Google Drive anda?`)) {
-        window.open(`https://drive.google.com/drive/search?q=${encodeURIComponent(proofStr)}`, '_blank');
+      alert(`Fail: ${proofStr}\n\nPautan terus tidak tersedia untuk rekod ini.`);
+    }
+  };
+
+  // Fungsi Muat Turun Bukti
+  const handleDownload = (record: any) => {
+    const proofStr = String(record.proof || '').trim();
+    
+    if (proofStr === 'Tiada Bukti' || !proofStr) {
+      alert('Tiada bukti dilampirkan untuk rekod ini.');
+      return;
+    }
+
+    if (record.file) {
+      const url = URL.createObjectURL(record.file);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = record.proof;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return;
+    }
+
+    const isUrl = proofStr.startsWith('http') || proofStr.startsWith('www') || proofStr.includes('drive.google.com') || proofStr.includes('docs.google.com');
+    if (isUrl) {
+      let url = proofStr;
+      if (proofStr.startsWith('www')) url = `https://${proofStr}`;
+
+      // Jika ia adalah pautan Google Drive, cuba tukar ke pautan muat turun terus
+      if (url.includes('drive.google.com')) {
+        const match = url.match(/\/(?:d|open|uc|file\/d)\/([a-zA-Z0-9_-]+)/);
+        if (match && match[1]) {
+          url = `https://drive.google.com/uc?export=download&id=${match[1]}`;
+        }
       }
+      
+      window.open(url, '_blank');
+    } else {
+      alert(`Fail: ${proofStr}\n\nPautan muat turun tidak tersedia.`);
     }
   };
 
@@ -1119,7 +1130,9 @@ export default function App() {
                           {userRole === 'teacher' && (
                             <td className="px-6 py-4">
                               <div className="font-medium text-slate-800">{record.studentName}</div>
-                              <div className="text-slate-500 text-xs mt-0.5">{record.className}</div>
+                              <div className="text-slate-500 text-xs mt-0.5">
+                                {record.className}
+                              </div>
                             </td>
                           )}
                           <td className="px-6 py-4">
@@ -1128,55 +1141,21 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4">
                             {record.proof && record.proof !== 'Tiada Bukti' ? (
-                              <div className="flex flex-col space-y-2">
-                                {(record.proof.startsWith('http') || record.proof.includes('drive.google.com')) && (
-                                  <div 
-                                    onClick={() => handleDownload(record)}
-                                    className="w-12 h-12 rounded border border-slate-200 overflow-hidden cursor-pointer hover:border-blue-400 transition-colors bg-slate-50 flex items-center justify-center group relative"
-                                  >
-                                    {/* Thumbnail Preview */}
-                                    {(() => {
-                                      const url = record.proof.includes('drive.google.com') && !record.proof.includes('uc?export=view') 
-                                        ? normalizeDriveLink(record.proof) 
-                                        : record.proof;
-                                      
-                                      const isImg = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url.split('?')[0]) || url.includes('drive.google.com/uc');
-                                      
-                                      if (isImg) {
-                                        return (
-                                          <>
-                                            <img 
-                                              src={url} 
-                                              alt="Preview" 
-                                              className="w-full h-full object-cover"
-                                              referrerPolicy="no-referrer"
-                                              onError={(e: any) => {
-                                                e.target.style.display = 'none';
-                                                e.target.nextSibling.style.display = 'flex';
-                                              }}
-                                            />
-                                            <div className="hidden absolute inset-0 items-center justify-center bg-slate-50">
-                                              <FileText className="w-5 h-5 text-slate-400" />
-                                            </div>
-                                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                                              <Eye className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
-                                            </div>
-                                          </>
-                                        );
-                                      }
-                                      return <FileText className="w-5 h-5 text-slate-400" />;
-                                    })()}
-                                  </div>
-                                )}
+                              <div className="flex items-center space-x-2">
+                                <button 
+                                  onClick={() => handleView(record)}
+                                  className="flex items-center text-blue-600 hover:text-blue-800 hover:underline transition-colors group text-xs font-medium"
+                                  title="Papar Bukti"
+                                >
+                                  <Eye className="w-4 h-4 mr-1" />
+                                  Papar
+                                </button>
                                 <button 
                                   onClick={() => handleDownload(record)}
-                                  className="flex items-center text-blue-600 hover:text-blue-800 hover:underline transition-colors group text-xs"
+                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all"
+                                  title="Muat Turun"
                                 >
-                                  <Paperclip className="w-3 h-3 mr-1 text-slate-400 group-hover:text-blue-600" />
-                                  <span className="truncate max-w-[100px]" title={record.proof}>
-                                    {record.proof.startsWith('http') ? 'Lihat Bukti' : record.proof}
-                                  </span>
-                                  <ExternalLink className="w-2.5 h-2.5 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  <Download className="w-4 h-4" />
                                 </button>
                               </div>
                             ) : (
@@ -1231,7 +1210,7 @@ export default function App() {
                   }}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center"
                 >
-                  <Paperclip className="w-4 h-4 mr-2" />
+                  <Download className="w-4 h-4 mr-2" />
                   Muat Turun
                 </button>
                 <button 
