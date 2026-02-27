@@ -156,10 +156,10 @@ export default function App() {
 
         const idIdx = findHeaderIndex(['ID']);
         const tarikhIdx = findHeaderIndex(['TARIKH']);
-        const namaIdx = findHeaderIndex(['NAMA MURID', 'NAMA_MURID', 'NAMA']);
-        const sebabIdx = findHeaderIndex(['SEBAB', 'ALASAN']);
-        const buktiIdx = findHeaderIndex(['BUKTI', 'LAMPIRAN', 'DOKUMEN']);
-        const kelasIdx = findHeaderIndex(['KELAS', 'NAMA KELAS']);
+        const namaIdx = findHeaderIndex(['NAMA MURID', 'NAMA_MURID', 'NAMA', 'NAMA PENUH']);
+        const sebabIdx = findHeaderIndex(['SEBAB', 'ALASAN', 'REASON']);
+        const buktiIdx = findHeaderIndex(['BUKTI', 'LAMPIRAN', 'DOKUMEN', 'FILE', 'URL', 'PAUTAN', 'BUKTI KETIDAKHADIRAN']);
+        const kelasIdx = findHeaderIndex(['KELAS', 'NAMA KELAS', 'CLASS']);
 
         const parsedRecords = recordLines.slice(1).map((line, idx) => {
           const cols = parseCSVLine(line);
@@ -168,7 +168,12 @@ export default function App() {
           // Cari data murid untuk dapatkan IC dan Kelas
           const student = parsedStudents.find(s => s.name && s.name.trim().toUpperCase() === studentName.toUpperCase());
           
-          const proofVal = buktiIdx !== -1 ? (cols[buktiIdx] || '').trim() : '';
+          let proofVal = buktiIdx !== -1 ? (cols[buktiIdx] || '').trim() : '';
+          
+          // Jika proofVal bukan URL tapi nampak macam ID fail (contoh: 1abc...), kita boleh cuba bina URL Drive
+          if (proofVal && !proofVal.startsWith('http') && proofVal.length > 20 && !proofVal.includes(' ')) {
+            proofVal = `https://drive.google.com/file/d/${proofVal}/view`;
+          }
 
           return {
             id: idIdx !== -1 ? cols[idIdx] : idx,
@@ -379,8 +384,8 @@ export default function App() {
       
       const driveId = getDriveId(url);
       if (driveId) {
-        // Cuba paparkan sebagai imej terus dahulu
-        const directImageUrl = `https://drive.google.com/uc?id=${driveId}&export=view`;
+        // Gunakan pautan direct image Google Drive yang paling berkesan untuk paparan
+        const directImageUrl = `https://lh3.googleusercontent.com/d/${driveId}`;
         setSelectedImage(directImageUrl);
         return;
       }
@@ -392,7 +397,13 @@ export default function App() {
         window.open(url, '_blank');
       }
     } else {
-      alert(`Maklumat bukti: ${proofStr}\n\nPautan tidak ditemui. Sila pastikan pautan Google Drive telah dikongsi secara 'Public' atau 'Anyone with the link'.`);
+      // Jika ia bukan URL, mungkin ia adalah ID fail
+      if (proofStr.length > 15 && !proofStr.includes(' ')) {
+        const directImageUrl = `https://lh3.googleusercontent.com/d/${proofStr}`;
+        setSelectedImage(directImageUrl);
+      } else {
+        alert(`Maklumat bukti: ${proofStr}\n\nPautan tidak sah. Sila pastikan fail di Google Drive telah dikongsi secara 'Public'.`);
+      }
     }
   };
 
@@ -1191,24 +1202,42 @@ export default function App() {
                   <LogOut className="w-5 h-5 text-slate-500 rotate-180" />
                 </button>
               </div>
-              <div className="p-2 bg-slate-100 flex items-center justify-center min-h-[300px] max-h-[70vh] overflow-auto">
-                <img 
-                  src={selectedImage} 
-                  alt="Bukti Ketidakhadiran" 
-                  className="max-w-full h-auto rounded shadow-sm"
-                  onError={(e: any) => {
-                    e.target.onerror = null;
-                    // Jika gagal sebagai imej terus (mungkin PDF atau Drive Preview diperlukan)
-                    const driveId = getDriveId(selectedImage || '');
-                    if (driveId) {
-                      window.open(`https://drive.google.com/file/d/${driveId}/view`, '_blank');
-                    } else {
-                      alert('Gagal memaparkan gambar secara terus. Membuka pautan asal di tab baru.');
-                      window.open(selectedImage || '', '_blank');
-                    }
-                    setSelectedImage(null);
-                  }}
-                />
+              <div className="p-2 bg-slate-100 flex items-center justify-center min-h-[400px] max-h-[80vh] overflow-auto relative">
+                {selectedImage.includes('drive.google.com') && selectedImage.includes('/preview') ? (
+                  <iframe 
+                    src={selectedImage} 
+                    className="w-full h-[500px] border-0 rounded shadow-inner bg-white"
+                    title="Pratinjau Google Drive"
+                    allow="autoplay"
+                  ></iframe>
+                ) : (
+                  <img 
+                    src={selectedImage} 
+                    alt="Bukti Ketidakhadiran" 
+                    className="max-w-full h-auto rounded shadow-sm"
+                    onError={(e: any) => {
+                      e.target.onerror = null;
+                      const currentUrl = selectedImage || '';
+                      const driveId = getDriveId(currentUrl) || (currentUrl.includes('googleusercontent.com/d/') ? currentUrl.split('/d/')[1] : null);
+                      
+                      if (driveId) {
+                        // Jika gagal guna googleusercontent, cuba iframe preview
+                        const previewUrl = `https://drive.google.com/file/d/${driveId}/preview`;
+                        if (currentUrl !== previewUrl) {
+                          setSelectedImage(previewUrl);
+                        } else {
+                          // Jika iframe pun gagal, buka tab baru
+                          window.open(`https://drive.google.com/file/d/${driveId}/view`, '_blank');
+                          setSelectedImage(null);
+                        }
+                      } else {
+                        alert('Gagal memaparkan fail. Membuka pautan asal di tab baru.');
+                        window.open(currentUrl, '_blank');
+                        setSelectedImage(null);
+                      }
+                    }}
+                  />
+                )}
               </div>
               <div className="p-4 bg-white flex justify-end space-x-3">
                 <button 
