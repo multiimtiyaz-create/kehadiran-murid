@@ -34,6 +34,7 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [loggedInStudent, setLoggedInStudent] = useState<any>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [isImageLoading, setIsImageLoading] = useState(false);
 
   // State untuk Tapisan Guru
   const [filterTingkatan, setFilterTingkatan] = useState('Semua');
@@ -305,7 +306,7 @@ export default function App() {
 
     try {
       // PERHATIAN: Masukkan URL Google Apps Script anda di sini (Web App URL)
-      const scriptUrl: string = 'https://script.google.com/macros/s/AKfycbxYrx7srwwTRG-7pq7jmYBtbt8ZBEbpMzFAFlJRlgOBhpA4yVD1A-4cVG1QFm5NgGxtFQ/exec';
+      const scriptUrl: string = 'https://script.google.com/macros/s/AKfycbz_hOuUux8jyMZaybdlLhCww0c2bbZM9wDCAjK_nh9qxaG1jfEs4V0s-szkVwIN22W6Jw/exec';
       const placeholder: string = 'GANTIKAN_DENGAN_URL_WEB_APP_APPS_SCRIPT_ANDA';
 
       if (scriptUrl !== placeholder) {
@@ -356,9 +357,17 @@ export default function App() {
 
   // Fungsi untuk mengekstrak ID Google Drive
   const getDriveId = (url: string) => {
-    const regex = /(?:id=|\/d\/|file\/d\/|open\?id=)([a-zA-Z0-9_-]{25,})/;
+    if (!url) return null;
+    // Handle full URLs
+    const regex = /(?:id=|\/d\/|file\/d\/|open\?id=)([a-zA-Z0-9_-]{20,})/;
     const match = url.match(regex);
-    return match ? match[1] : null;
+    if (match) return match[1];
+    
+    // Handle cases where only the ID is provided
+    if (url.length >= 20 && !url.includes('/') && !url.includes(' ')) {
+      return url;
+    }
+    return null;
   };
 
   // Fungsi Papar Bukti
@@ -370,6 +379,8 @@ export default function App() {
       return;
     }
 
+    setIsImageLoading(true);
+
     // 1. Jika fail ada dalam state (baru dimuat naik dalam sesi ini)
     if (record.file) {
       const url = URL.createObjectURL(record.file);
@@ -377,41 +388,35 @@ export default function App() {
         setSelectedImage(url);
       } else {
         window.open(url, '_blank');
+        setIsImageLoading(false);
       }
       return;
     } 
 
-    // 2. Detect URLs (termasuk pautan Google Drive)
-    const isUrl = proofStr.startsWith('http') || proofStr.startsWith('www') || proofStr.includes('drive.google.com') || proofStr.includes('docs.google.com');
-    
+    // 2. Detect Google Drive
+    const driveId = getDriveId(proofStr);
+    if (driveId) {
+      // Gunakan iframe preview sebagai kaedah utama kerana ia paling stabil
+      setSelectedImage(`https://drive.google.com/file/d/${driveId}/preview`);
+      return;
+    }
+
+    // 3. Detect URLs lain
+    const isUrl = proofStr.startsWith('http') || proofStr.startsWith('www');
     if (isUrl) {
       let url = proofStr;
       if (proofStr.startsWith('www')) url = `https://${proofStr}`;
       
-      const driveId = getDriveId(url);
-      if (driveId) {
-        // Gunakan pautan direct image Google Drive yang paling berkesan untuk paparan
-        // Kita cuba paparkan dalam modal dahulu
-        const directImageUrl = `https://lh3.googleusercontent.com/d/${driveId}`;
-        setSelectedImage(directImageUrl);
-        return;
-      }
-
       const isImageUrl = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url.split('?')[0]);
       if (isImageUrl) {
         setSelectedImage(url);
       } else {
-        // Jika bukan imej terus, buka dalam tab baru (PDF/Doc)
         window.open(url, '_blank');
+        setIsImageLoading(false);
       }
     } else {
-      // Jika ia bukan URL, mungkin ia adalah ID fail
-      if (proofStr.length > 15 && !proofStr.includes(' ')) {
-        const directImageUrl = `https://lh3.googleusercontent.com/d/${proofStr}`;
-        setSelectedImage(directImageUrl);
-      } else {
-        alert(`Maklumat bukti: ${proofStr}\n\nPautan tidak sah atau fail tidak ditemui.`);
-      }
+      alert(`Maklumat bukti: ${proofStr}\n\nPautan tidak sah atau fail tidak ditemui.`);
+      setIsImageLoading(false);
     }
   };
 
@@ -453,46 +458,37 @@ export default function App() {
     }
   };
 
-  // Fungsi Cetak JPEG (Muat Turun Bukti Sahaja)
-  const handlePrintJPEG = async (record: any) => {
+  // Fungsi Cetak JPEG (Buka tetingkap baru untuk bukti)
+  const handlePrintJPEG = (record: any) => {
     const proofStr = String(record.proof || '').trim();
     
     if (proofStr === 'Tiada Bukti' || !proofStr) {
-      alert('Tiada bukti dilampirkan.');
+      alert('Tiada bukti dilampirkan untuk rekod ini.');
       return;
     }
 
-    let imageUrl = '';
-    const driveId = getDriveId(proofStr) || (proofStr.includes('googleusercontent.com/d/') ? proofStr.split('/d/')[1] : null);
-    
-    if (record.file && record.file.type.startsWith('image/')) {
-      imageUrl = URL.createObjectURL(record.file);
-    } else if (driveId) {
-      imageUrl = `https://lh3.googleusercontent.com/d/${driveId}`;
-    } else if (proofStr.startsWith('http')) {
-      imageUrl = proofStr;
-    }
-
-    if (!imageUrl) {
-      alert('Gagal mendapatkan pautan imej.');
+    // 1. Jika fail baru dimuat naik
+    if (record.file) {
+      const url = URL.createObjectURL(record.file);
+      window.open(url, '_blank');
       return;
     }
 
-    try {
-      // Cuba muat turun secara terus menggunakan fetch untuk menamakan fail
-      const response = await fetch(imageUrl);
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Bukti_${record.studentName.replace(/\s+/g, '_')}_${record.date}.jpg`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      // Jika fetch gagal (CORS), buka dalam tab baru
-      window.open(imageUrl, '_blank');
+    // 2. Detect Google Drive
+    const driveId = getDriveId(proofStr);
+    if (driveId) {
+      // Buka pautan view rasmi
+      window.open(`https://drive.google.com/file/d/${driveId}/view`, '_blank');
+      return;
+    }
+
+    // 3. Detect URLs lain
+    if (proofStr.startsWith('http') || proofStr.startsWith('www')) {
+      let url = proofStr;
+      if (proofStr.startsWith('www')) url = `https://${proofStr}`;
+      window.open(url, '_blank');
+    } else {
+      alert(`Pautan bukti tidak sah: "${proofStr}"\n\nSila pastikan pautan adalah URL penuh atau ID Google Drive yang sah.`);
     }
   };
 
@@ -1253,64 +1249,86 @@ export default function App() {
                   <LogOut className="w-5 h-5 text-slate-500 rotate-180" />
                 </button>
               </div>
-              <div className="p-2 bg-slate-100 flex items-center justify-center min-h-[400px] max-h-[80vh] overflow-auto relative">
+              <div className="p-4 bg-slate-100 flex items-center justify-center min-h-[400px] max-h-[85vh] overflow-auto relative">
+                {isImageLoading && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100/80 z-10">
+                    <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-2" />
+                    <p className="text-xs text-slate-500 font-medium">Memuatkan imej...</p>
+                  </div>
+                )}
+                
                 {selectedImage.includes('drive.google.com') && selectedImage.includes('/preview') ? (
                   <iframe 
                     src={selectedImage} 
-                    className="w-full h-[500px] border-0 rounded shadow-inner bg-white"
+                    className="w-full h-[600px] border-0 rounded shadow-inner bg-white"
                     title="Pratinjau Google Drive"
                     allow="autoplay"
+                    onLoad={() => setIsImageLoading(false)}
                   ></iframe>
                 ) : (
-                  <img 
-                    src={selectedImage} 
-                    alt="Bukti Ketidakhadiran" 
-                    className="max-w-full h-auto rounded shadow-sm"
-                    onError={(e: any) => {
-                      e.target.onerror = null;
-                      const currentUrl = selectedImage || '';
-                      const driveId = getDriveId(currentUrl) || (currentUrl.includes('googleusercontent.com/d/') ? currentUrl.split('/d/')[1] : null);
-                      
-                      if (driveId) {
-                        // Jika gagal guna googleusercontent, cuba iframe preview
-                        const previewUrl = `https://drive.google.com/file/d/${driveId}/preview`;
-                        if (currentUrl !== previewUrl) {
-                          setSelectedImage(previewUrl);
+                  <div className="flex flex-col items-center">
+                    <img 
+                      src={selectedImage} 
+                      alt="Bukti Ketidakhadiran" 
+                      className="max-w-full h-auto rounded shadow-md bg-white"
+                      onLoad={() => setIsImageLoading(false)}
+                      onError={(e: any) => {
+                        e.target.onerror = null;
+                        const currentUrl = selectedImage || '';
+                        const driveId = getDriveId(currentUrl);
+                        
+                        if (driveId && !currentUrl.includes('/preview')) {
+                          // Jika thumbnail gagal, cuba iframe preview
+                          setSelectedImage(`https://drive.google.com/file/d/${driveId}/preview`);
                         } else {
-                          // Jika iframe pun gagal, buka tab baru
-                          window.open(`https://drive.google.com/file/d/${driveId}/view`, '_blank');
-                          setSelectedImage(null);
+                          setIsImageLoading(false);
+                          e.target.style.display = 'none';
+                          const errorMsg = document.getElementById('image-error-msg');
+                          if (errorMsg) errorMsg.style.display = 'block';
                         }
-                      } else {
-                        alert('Gagal memaparkan fail. Membuka pautan asal di tab baru.');
-                        window.open(currentUrl, '_blank');
-                        setSelectedImage(null);
-                      }
-                    }}
-                  />
+                      }}
+                    />
+                    <div id="image-error-msg" className="hidden text-center p-8">
+                      <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
+                      <p className="text-slate-800 font-bold mb-1">Gagal Memaparkan Imej</p>
+                      <p className="text-slate-500 text-sm mb-4">Fail mungkin tidak dikongsi secara awam atau format tidak disokong.</p>
+                      <button 
+                        onClick={() => {
+                          const driveId = getDriveId(selectedImage || '');
+                          const url = driveId ? `https://drive.google.com/file/d/${driveId}/view` : selectedImage;
+                          window.open(url || '', '_blank');
+                        }}
+                        className="px-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-slate-900 transition-colors"
+                      >
+                        Buka Fail Asal di Tab Baru
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
-              <div className="p-4 bg-white flex justify-end space-x-3">
-                <button 
-                  onClick={() => {
-                    const a = document.createElement('a');
-                    a.href = selectedImage || '';
-                    a.download = "bukti-ketidakhadiran";
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                  }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Muat Turun
-                </button>
-                <button 
-                  onClick={() => setSelectedImage(null)}
-                  className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-300 transition-colors"
-                >
-                  Tutup
-                </button>
+              <div className="p-4 bg-white border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="text-[10px] text-slate-400 italic text-center sm:text-left">
+                  *Pastikan fail di Google Drive telah ditetapkan kepada "Anyone with the link".
+                </div>
+                <div className="flex space-x-3 w-full sm:w-auto">
+                  <button 
+                    onClick={() => {
+                      const driveId = getDriveId(selectedImage || '');
+                      const url = driveId ? `https://drive.google.com/file/d/${driveId}/view` : selectedImage;
+                      window.open(url || '', '_blank');
+                    }}
+                    className="flex-1 sm:flex-none px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-200 transition-colors flex items-center justify-center"
+                  >
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Buka Asal
+                  </button>
+                  <button 
+                    onClick={() => setSelectedImage(null)}
+                    className="flex-1 sm:flex-none px-6 py-2 bg-slate-800 text-white rounded-lg text-sm font-bold hover:bg-slate-900 transition-colors"
+                  >
+                    Tutup
+                  </button>
+                </div>
               </div>
             </div>
           </div>
