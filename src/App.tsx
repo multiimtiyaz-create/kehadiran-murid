@@ -37,6 +37,7 @@ export default function App() {
   const [loggedInStudent, setLoggedInStudent] = useState<any>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isImageLoading, setIsImageLoading] = useState(false);
+  const [proofErrorDetails, setProofErrorDetails] = useState<string | null>(null);
 
   // State untuk Tapisan Guru
   const [filterTingkatan, setFilterTingkatan] = useState('Semua');
@@ -342,7 +343,7 @@ export default function App() {
 
     try {
       // PERHATIAN: Masukkan URL Google Apps Script anda di sini (Web App URL)
-      const scriptUrl: string = 'https://script.google.com/macros/s/AKfycbxQnNSjtvW0Nwkpwxu41kLRae6jGsMYyPKkLxtolq5BmO7lY4U8BazfSwIDcnnx8MDUHw/exec';
+      const scriptUrl: string = 'https://script.google.com/macros/s/AKfycby6pVCtaTdTD9AoBFU5fN4dQK4flSk_3Zxfh5Z2nz8ITBUkgEKcF3scQOCqHC4vYdP7yw/exec';
       const placeholder: string = 'GANTIKAN_DENGAN_URL_WEB_APP_APPS_SCRIPT_ANDA';
 
       if (scriptUrl !== placeholder) {
@@ -453,11 +454,14 @@ export default function App() {
     } else {
       // Jika ia hanya nama fail (contoh: kalendar.jpg)
       if (proofStr.includes('.') && !proofStr.includes(' ')) {
-        alert(`Fail: ${proofStr}\n\nFail ini hanya disimpan sebagai nama rujukan. Untuk membolehkan paparan gambar, sila pastikan anda menggunakan kod Google Apps Script terbaru yang menyokong muat naik fail ke Google Drive.`);
+        setIsImageLoading(false);
+        // Tunjukkan modal ralat yang lebih cantik daripada alert
+        setSelectedImage('ERROR_FILENAME_ONLY');
+        setProofErrorDetails(proofStr);
       } else {
         alert(`Maklumat bukti: ${proofStr}\n\nPautan tidak sah atau fail tidak ditemui.`);
+        setIsImageLoading(false);
       }
-      setIsImageLoading(false);
     }
   };
 
@@ -1310,7 +1314,31 @@ export default function App() {
                   </div>
                 )}
                 
-                {selectedImage.includes('drive.google.com') && selectedImage.includes('/preview') ? (
+                {selectedImage === 'ERROR_FILENAME_ONLY' ? (
+                  <div className="text-center p-8 max-w-md">
+                    <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <AlertCircle className="w-10 h-10 text-amber-600" />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-800 mb-2">Imej Tidak Dapat Dipaparkan</h3>
+                    <p className="text-slate-600 mb-6">
+                      Fail <span className="font-mono font-bold text-blue-600">"{proofErrorDetails}"</span> ini adalah rekod lama atau sistem belum dikemaskini sepenuhnya.
+                    </p>
+                    <div className="bg-blue-50 border-l-4 border-blue-500 p-4 text-left mb-6">
+                      <p className="text-xs text-blue-800 font-medium mb-2 uppercase tracking-wider">Cara Selesaikan:</p>
+                      <ol className="text-xs text-blue-700 space-y-2 list-decimal ml-4">
+                        <li>Pastikan anda telah menggunakan <strong>Kod GAS Terbaru</strong> yang saya berikan.</li>
+                        <li>Sila buat <strong>Hantaran Baru</strong> dengan melampirkan gambar untuk menguji sistem.</li>
+                        <li>Rekod lama memang tidak akan memaparkan gambar kerana data asal tidak disimpan di Drive.</li>
+                      </ol>
+                    </div>
+                    <button 
+                      onClick={() => setSelectedImage(null)}
+                      className="w-full py-3 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 transition-all shadow-lg"
+                    >
+                      Faham, Saya Akan Cuba Hantaran Baru
+                    </button>
+                  </div>
+                ) : selectedImage.includes('drive.google.com') && selectedImage.includes('/preview') ? (
                   <iframe 
                     src={selectedImage} 
                     className="w-full h-[600px] border-0 rounded shadow-inner bg-white"
