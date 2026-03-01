@@ -342,7 +342,7 @@ export default function App() {
 
     try {
       // PERHATIAN: Masukkan URL Google Apps Script anda di sini (Web App URL)
-      const scriptUrl: string = 'https://script.google.com/macros/s/AKfycbwe66wbGSntJx2JG7y9QaqEuXUk1wd1lPFPUHiiC84iQ_Sydx-xdJ6l5U36gqHT3LMQKA/exec';
+      const scriptUrl: string = 'https://script.google.com/macros/s/AKfycbxQnNSjtvW0Nwkpwxu41kLRae6jGsMYyPKkLxtolq5BmO7lY4U8BazfSwIDcnnx8MDUHw/exec';
       const placeholder: string = 'GANTIKAN_DENGAN_URL_WEB_APP_APPS_SCRIPT_ANDA';
 
       if (scriptUrl !== placeholder) {
