@@ -319,15 +319,30 @@ export default function App() {
       bukti: proofLink.trim() !== '' ? proofLink : (file ? file.name : 'Tiada Bukti')
     };
 
-    // Jika ada fail, kita boleh cuba hantar maklumat tambahan (pilihan)
-    if (file) {
-      // Nota: Untuk simpan fail sebenar ke Drive, Apps Script perlu menyokong penerimaan base64
-      // Di sini kita hanya hantar nama fail sebagai rujukan utama
+    // Jika ada fail, tukar kepada base64 untuk dihantar ke GAS
+    if (file && proofLink.trim() === '') {
+      try {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.split(',')[1]); // Ambil bahagian data sahaja
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        
+        payload.fileData = base64;
+        payload.fileName = file.name;
+        payload.fileMimeType = file.type;
+      } catch (err) {
+        console.error("Gagal menukar fail ke base64:", err);
+      }
     }
 
     try {
       // PERHATIAN: Masukkan URL Google Apps Script anda di sini (Web App URL)
-      const scriptUrl: string = 'https://script.google.com/macros/s/AKfycbw4PpYmsq-bPoqc-CSnej70GslLmoypizyvWpZtO7foVVNuhvoPgQunkwCzPfB3YxgBMA/exec';
+      const scriptUrl: string = 'https://script.google.com/macros/s/AKfycbwe66wbGSntJx2JG7y9QaqEuXUk1wd1lPFPUHiiC84iQ_Sydx-xdJ6l5U36gqHT3LMQKA/exec';
       const placeholder: string = 'GANTIKAN_DENGAN_URL_WEB_APP_APPS_SCRIPT_ANDA';
 
       if (scriptUrl !== placeholder) {
@@ -436,7 +451,12 @@ export default function App() {
         setIsImageLoading(false);
       }
     } else {
-      alert(`Maklumat bukti: ${proofStr}\n\nPautan tidak sah atau fail tidak ditemui.`);
+      // Jika ia hanya nama fail (contoh: kalendar.jpg)
+      if (proofStr.includes('.') && !proofStr.includes(' ')) {
+        alert(`Fail: ${proofStr}\n\nFail ini hanya disimpan sebagai nama rujukan. Untuk membolehkan paparan gambar, sila pastikan anda menggunakan kod Google Apps Script terbaru yang menyokong muat naik fail ke Google Drive.`);
+      } else {
+        alert(`Maklumat bukti: ${proofStr}\n\nPautan tidak sah atau fail tidak ditemui.`);
+      }
       setIsImageLoading(false);
     }
   };
