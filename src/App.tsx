@@ -19,7 +19,9 @@ import {
   ExternalLink,
   Download,
   Printer,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Maximize2,
+  Search
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
@@ -151,8 +153,24 @@ export default function App() {
       // Bersihkan karakter \r dan pecahkan baris
       const recordLines = recordCsvText.replace(/\r/g, '').split('\n').filter(line => line.trim() !== '');
 
-      if (recordLines.length > 1) {
-        const headers = parseCSVLine(recordLines[0]).map(h => h.trim().toUpperCase());
+      if (recordLines.length > 0) {
+        // Cari baris header (biasanya baris pertama yang ada 'NAMA' atau 'TARIKH')
+        let headerRowIndex = 0;
+        let headers: string[] = [];
+        
+        for (let i = 0; i < Math.min(recordLines.length, 5); i++) {
+          const tempHeaders = parseCSVLine(recordLines[i]).map(h => h.trim().toUpperCase().replace(/[^\w\s]/gi, ''));
+          if (tempHeaders.some(h => ['NAMA', 'TARIKH', 'BUKTI', 'SEBAB'].includes(h))) {
+            headerRowIndex = i;
+            headers = tempHeaders;
+            break;
+          }
+        }
+        
+        // Jika tidak jumpa header secara automatik, guna baris pertama
+        if (headers.length === 0) {
+          headers = parseCSVLine(recordLines[0]).map(h => h.trim().toUpperCase().replace(/[^\w\s]/gi, ''));
+        }
         
         const findHeaderIndex = (keywords: string[]) => {
           let idx = headers.findIndex(h => keywords.some(k => h === k));
@@ -162,12 +180,15 @@ export default function App() {
 
         const idIdx = findHeaderIndex(['ID']);
         const tarikhIdx = findHeaderIndex(['TARIKH']);
-        const namaIdx = findHeaderIndex(['NAMA MURID', 'NAMA_MURID', 'NAMA', 'NAMA PENUH', 'STUDENT NAME']);
+        const namaIdx = findHeaderIndex(['NAMA MURID', 'NAMAMURID', 'NAMA', 'NAMAPENUH', 'STUDENTNAME']);
         const sebabIdx = findHeaderIndex(['SEBAB', 'ALASAN', 'REASON']);
-        const buktiIdx = findHeaderIndex(['BUKTI', 'LAMPIRAN', 'DOKUMEN', 'FILE', 'URL', 'PAUTAN', 'BUKTI KETIDAKHADIRAN', 'EVIDENCE']);
-        const kelasIdx = findHeaderIndex(['KELAS', 'NAMA KELAS', 'CLASS']);
+        // Fallback untuk BUKTI: Jika tidak jumpa, cuba guna Kolum E (index 4) seperti yang dinyatakan user
+        let buktiIdx = findHeaderIndex(['BUKTI', 'LAMPIRAN', 'DOKUMEN', 'FILE', 'URL', 'PAUTAN', 'BUKTIKETIDAKHADIRAN', 'EVIDENCE']);
+        if (buktiIdx === -1 && headers.length > 4) buktiIdx = 4; 
+        
+        const kelasIdx = findHeaderIndex(['KELAS', 'NAMAKELAS', 'CLASS']);
 
-        const parsedRecords = recordLines.slice(1).map((line, idx) => {
+        const parsedRecords = recordLines.slice(headerRowIndex + 1).map((line, idx) => {
           const cols = parseCSVLine(line);
           const studentName = (namaIdx !== -1 ? cols[namaIdx] || '' : '').trim();
           
@@ -306,7 +327,7 @@ export default function App() {
 
     try {
       // PERHATIAN: Masukkan URL Google Apps Script anda di sini (Web App URL)
-      const scriptUrl: string = 'https://script.google.com/macros/s/AKfycbz_hOuUux8jyMZaybdlLhCww0c2bbZM9wDCAjK_nh9qxaG1jfEs4V0s-szkVwIN22W6Jw/exec';
+      const scriptUrl: string = 'https://script.google.com/macros/s/AKfycbw4PpYmsq-bPoqc-CSnej70GslLmoypizyvWpZtO7foVVNuhvoPgQunkwCzPfB3YxgBMA/exec';
       const placeholder: string = 'GANTIKAN_DENGAN_URL_WEB_APP_APPS_SCRIPT_ANDA';
 
       if (scriptUrl !== placeholder) {
@@ -455,40 +476,6 @@ export default function App() {
       window.open(url, '_blank');
     } else {
       alert(`Maklumat bukti: ${proofStr}\n\nPautan muat turun tidak tersedia.`);
-    }
-  };
-
-  // Fungsi Cetak JPEG (Buka tetingkap baru untuk bukti)
-  const handlePrintJPEG = (record: any) => {
-    const proofStr = String(record.proof || '').trim();
-    
-    if (proofStr === 'Tiada Bukti' || !proofStr) {
-      alert('Tiada bukti dilampirkan untuk rekod ini.');
-      return;
-    }
-
-    // 1. Jika fail baru dimuat naik
-    if (record.file) {
-      const url = URL.createObjectURL(record.file);
-      window.open(url, '_blank');
-      return;
-    }
-
-    // 2. Detect Google Drive
-    const driveId = getDriveId(proofStr);
-    if (driveId) {
-      // Buka pautan view rasmi
-      window.open(`https://drive.google.com/file/d/${driveId}/view`, '_blank');
-      return;
-    }
-
-    // 3. Detect URLs lain
-    if (proofStr.startsWith('http') || proofStr.startsWith('www')) {
-      let url = proofStr;
-      if (proofStr.startsWith('www')) url = `https://${proofStr}`;
-      window.open(url, '_blank');
-    } else {
-      alert(`Pautan bukti tidak sah: "${proofStr}"\n\nSila pastikan pautan adalah URL penuh atau ID Google Drive yang sah.`);
     }
   };
 
@@ -1204,25 +1191,71 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4">
                             {record.proof && record.proof !== 'Tiada Bukti' ? (
-                              <div className="flex items-center space-x-2">
-                                <button 
-                                  onClick={() => handlePrintJPEG(record)}
-                                  className="flex items-center text-emerald-600 hover:text-emerald-800 hover:underline transition-colors group text-xs font-medium"
-                                  title="Cetak JPEG"
-                                >
-                                  <ImageIcon className="w-4 h-4 mr-1" />
-                                  Cetak JPEG
-                                </button>
-                                <button 
-                                  onClick={() => handleView(record)}
-                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all"
-                                  title="Papar Bukti"
-                                >
-                                  <Eye className="w-4 h-4" />
-                                </button>
+                              <div className="flex flex-col space-y-2">
+                                {getDriveId(record.proof) ? (
+                                  <div 
+                                    className="w-24 h-24 rounded-xl border-2 border-slate-100 overflow-hidden bg-slate-50 cursor-pointer hover:border-blue-400 hover:shadow-md transition-all group relative"
+                                    onClick={() => handleView(record)}
+                                  >
+                                    <img 
+                                      src={`https://drive.google.com/thumbnail?id=${getDriveId(record.proof)}&sz=w400`}
+                                      alt="Thumbnail"
+                                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                      referrerPolicy="no-referrer"
+                                      onError={(e: any) => {
+                                        e.target.onerror = null;
+                                        e.target.src = "https://placehold.co/200x200/f1f5f9/64748b?text=Lihat+Fail";
+                                      }}
+                                    />
+                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-blue-600/20 transition-colors flex items-center justify-center">
+                                      <div className="bg-white/90 p-1.5 rounded-full shadow-sm scale-0 group-hover:scale-100 transition-transform duration-300">
+                                        <Maximize2 className="w-4 h-4 text-blue-600" />
+                                      </div>
+                                    </div>
+                                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/50 to-transparent p-1">
+                                      <div className="text-[8px] text-white font-bold truncate text-center">KLIK UNTUK PAPAR</div>
+                                    </div>
+                                  </div>
+                                ) : (record.file && record.file.type.startsWith('image/')) ? (
+                                  <div 
+                                    className="w-24 h-24 rounded-xl border-2 border-slate-100 overflow-hidden bg-slate-50 cursor-pointer hover:border-blue-400 hover:shadow-md transition-all group relative"
+                                    onClick={() => handleView(record)}
+                                  >
+                                    <img 
+                                      src={URL.createObjectURL(record.file)}
+                                      alt="Thumbnail"
+                                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                    />
+                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-blue-600/20 transition-colors flex items-center justify-center">
+                                      <div className="bg-white/90 p-1.5 rounded-full shadow-sm scale-0 group-hover:scale-100 transition-transform duration-300">
+                                        <Maximize2 className="w-4 h-4 text-blue-600" />
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button 
+                                    onClick={() => handleView(record)}
+                                    className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center bg-slate-50 hover:bg-blue-50 hover:border-blue-300 transition-all group"
+                                  >
+                                    <FileText className="w-6 h-6 text-slate-400 group-hover:text-blue-500 mb-1" />
+                                    <span className="text-[10px] font-bold text-slate-500 group-hover:text-blue-600">LIHAT FAIL</span>
+                                  </button>
+                                )}
+                                <div className="flex items-center justify-between px-1">
+                                  <button 
+                                    onClick={() => handleView(record)}
+                                    className="text-[10px] font-bold text-blue-600 hover:text-blue-800 flex items-center"
+                                  >
+                                    <Search className="w-3 h-3 mr-1" />
+                                    PAPAR PENUH
+                                  </button>
+                                </div>
                               </div>
                             ) : (
-                              <span className="text-slate-400 text-xs italic">Tiada Bukti</span>
+                              <div className="flex flex-col items-center justify-center w-24 h-24 rounded-xl border-2 border-dashed border-slate-100 bg-slate-50/50">
+                                <AlertCircle className="w-5 h-5 text-slate-300 mb-1" />
+                                <span className="text-[10px] text-slate-400 italic">Tiada Bukti</span>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -1321,6 +1354,20 @@ export default function App() {
                   >
                     <ExternalLink className="w-4 h-4 mr-2" />
                     Buka Asal
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const frame = document.querySelector('iframe');
+                      if (frame) {
+                        frame.contentWindow?.print();
+                      } else {
+                        window.print();
+                      }
+                    }}
+                    className="flex-1 sm:flex-none px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-bold hover:bg-blue-100 transition-colors flex items-center justify-center"
+                  >
+                    <Printer className="w-4 h-4 mr-2" />
+                    Cetak
                   </button>
                   <button 
                     onClick={() => setSelectedImage(null)}
